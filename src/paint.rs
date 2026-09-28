@@ -111,7 +111,11 @@ impl LinearGradient {
             SpreadMode::Repeat => t.fract(),
             SpreadMode::Reflect => {
                 let m = t.abs() % 2.0;
-                if m > 1.0 { 2.0 - m } else { m }
+                if m > 1.0 {
+                    2.0 - m
+                } else {
+                    m
+                }
             }
         };
 

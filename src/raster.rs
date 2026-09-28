@@ -48,12 +48,7 @@ pub fn fill_u16_slice(slice: &mut [u16], val: u16) {
 }
 
 /// Fill an axis-aligned rectangle with high-speed span filling.
-pub fn fill_rect(
-    pixmap: &mut Pixmap565Mut<'_>,
-    clip: Option<Rect>,
-    rect: Rect,
-    color: Color,
-) {
+pub fn fill_rect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rect: Rect, color: Color) {
     if rect.width <= 0.0 || rect.height <= 0.0 || color.a == 0 {
         return;
     }
@@ -84,7 +79,11 @@ pub fn fill_rect(
     // Ultra-fast path: full pixmap fill using native hardware memset (0.5ms)
     if is_opaque && col565 == 0 && x1 == 0 && y1 == 0 && x2 == pix_w && y2 == pix_h {
         unsafe {
-            std::ptr::write_bytes(pixmap.data.as_mut_ptr() as *mut u8, 0, pixmap.data.len() * 2);
+            std::ptr::write_bytes(
+                pixmap.data.as_mut_ptr() as *mut u8,
+                0,
+                pixmap.data.len() * 2,
+            );
         }
         return;
     }
@@ -104,12 +103,7 @@ pub fn fill_rect(
 }
 
 /// Fill a rounded rectangle with scanline spans.
-pub fn fill_rrect(
-    pixmap: &mut Pixmap565Mut<'_>,
-    clip: Option<Rect>,
-    rrect: RRect,
-    color: Color,
-) {
+pub fn fill_rrect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rrect: RRect, color: Color) {
     let rect = rrect.rect;
     if rect.width <= 0.0 || rect.height <= 0.0 || color.a == 0 {
         return;
@@ -289,8 +283,12 @@ pub fn stroke_rrect(
                 let lx2 = (in_x1.min(clamp_right).round() as i32).clamp(lx1, pix_w);
                 if lx2 > lx1 {
                     let slice = &mut row[lx1 as usize..lx2 as usize];
-                    if is_opaque { fill_u16_slice(slice, col565); } else {
-                        for px in slice.iter_mut() { *px = blend_rgb565(*px, col565, a); }
+                    if is_opaque {
+                        fill_u16_slice(slice, col565);
+                    } else {
+                        for px in slice.iter_mut() {
+                            *px = blend_rgb565(*px, col565, a);
+                        }
                     }
                 }
                 // Draw right segment [in_x2 .. out_x2]
@@ -298,8 +296,12 @@ pub fn stroke_rrect(
                 let rx2 = (out_x2.min(clamp_right).round() as i32).clamp(rx1, pix_w);
                 if rx2 > rx1 {
                     let slice = &mut row[rx1 as usize..rx2 as usize];
-                    if is_opaque { fill_u16_slice(slice, col565); } else {
-                        for px in slice.iter_mut() { *px = blend_rgb565(*px, col565, a); }
+                    if is_opaque {
+                        fill_u16_slice(slice, col565);
+                    } else {
+                        for px in slice.iter_mut() {
+                            *px = blend_rgb565(*px, col565, a);
+                        }
                     }
                 }
             }
@@ -309,8 +311,12 @@ pub fn stroke_rrect(
                 let x2 = (out_x2.min(clamp_right).round() as i32).clamp(x1, pix_w);
                 if x2 > x1 {
                     let slice = &mut row[x1 as usize..x2 as usize];
-                    if is_opaque { fill_u16_slice(slice, col565); } else {
-                        for px in slice.iter_mut() { *px = blend_rgb565(*px, col565, a); }
+                    if is_opaque {
+                        fill_u16_slice(slice, col565);
+                    } else {
+                        for px in slice.iter_mut() {
+                            *px = blend_rgb565(*px, col565, a);
+                        }
                     }
                 }
             }
@@ -329,7 +335,12 @@ pub fn fill_circle(
     if radius <= 0.0 || color.a == 0 {
         return;
     }
-    let rect = Rect::from_ltwh(center.x - radius, center.y - radius, radius * 2.0, radius * 2.0);
+    let rect = Rect::from_ltwh(
+        center.x - radius,
+        center.y - radius,
+        radius * 2.0,
+        radius * 2.0,
+    );
     let bounds = match clip {
         Some(c) => match rect.intersect(&c) {
             Some(i) => i,
@@ -580,7 +591,13 @@ pub fn blit_image_565_with_alpha_scaled(
     alpha_mask: &[u8],
 ) {
     let total = (src_w * src_h) as usize;
-    if dst_w == 0 || dst_h == 0 || src_w == 0 || src_h == 0 || rgb_pixels.len() < total || alpha_mask.len() < total {
+    if dst_w == 0
+        || dst_h == 0
+        || src_w == 0
+        || src_h == 0
+        || rgb_pixels.len() < total
+        || alpha_mask.len() < total
+    {
         return;
     }
 
@@ -842,14 +859,9 @@ pub fn fill_dithered_horizontal_gradient(
     /// and so the compiler does not constant-fold a term like `32.0 / 64.0 - 0.5`
     /// into `0.5 - 0.5` and trip `clippy::eq_op`.
     static BAYER8: [u8; 64] = [
-         0, 32,  8, 40,  2, 34, 10, 42,
-        48, 16, 56, 24, 50, 18, 58, 26,
-        12, 44,  4, 36, 14, 46,  6, 38,
-        60, 28, 52, 20, 62, 30, 54, 22,
-         3, 35, 11, 43,  1, 33,  9, 41,
-        51, 19, 59, 27, 49, 17, 57, 25,
-        15, 47,  7, 39, 13, 45,  5, 37,
-        63, 31, 55, 23, 61, 29, 53, 21,
+        0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38,
+        60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57,
+        25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
     ];
 
     let pix_w = pixmap.width as usize;
@@ -865,7 +877,11 @@ pub fn fill_dithered_horizontal_gradient(
         None => (0, 0, pix_w, pix_h),
     };
 
-    let inv_w = if pix_w > 1 { 1.0 / (pix_w - 1) as f32 } else { 0.0 };
+    let inv_w = if pix_w > 1 {
+        1.0 / (pix_w - 1) as f32
+    } else {
+        0.0
+    };
     let (r0, g0, b0) = (c0.0 as f32, c0.1 as f32, c0.2 as f32);
     let (dr, dg, db) = (c1.0 as f32 - r0, c1.1 as f32 - g0, c1.2 as f32 - b0);
 

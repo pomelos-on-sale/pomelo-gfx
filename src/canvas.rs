@@ -83,7 +83,12 @@ impl<'a> Canvas<'a> {
         if self.current_clip.is_none() {
             self.pixmap.fill(color.to_rgb565());
         } else {
-            let full_rect = Rect::from_ltwh(0.0, 0.0, self.pixmap.width as f32, self.pixmap.height as f32);
+            let full_rect = Rect::from_ltwh(
+                0.0,
+                0.0,
+                self.pixmap.width as f32,
+                self.pixmap.height as f32,
+            );
             raster::fill_rect(&mut self.pixmap, self.current_clip, full_rect, color);
         }
     }
@@ -119,7 +124,16 @@ impl<'a> Canvas<'a> {
     pub fn blit_mask(&mut self, x: i32, y: i32, w: u32, h: u32, mask: &[u8], color: Color) {
         let tx = x + (self.current_transform.tx.round() as i32);
         let ty = y + (self.current_transform.ty.round() as i32);
-        raster::blit_mask(&mut self.pixmap, self.current_clip, tx, ty, w, h, mask, color);
+        raster::blit_mask(
+            &mut self.pixmap,
+            self.current_clip,
+            tx,
+            ty,
+            w,
+            h,
+            mask,
+            color,
+        );
     }
 
     pub fn stroke_path(&mut self, path: &Path, paint: &Paint, stroke: &Stroke) {
@@ -131,7 +145,13 @@ impl<'a> Canvas<'a> {
                 .collect();
             let mut s = stroke.clone();
             s.width *= self.current_transform.sx;
-            raster::stroke_polyline(&mut self.pixmap, self.current_clip, &transformed_poly, paint, &s);
+            raster::stroke_polyline(
+                &mut self.pixmap,
+                self.current_clip,
+                &transformed_poly,
+                paint,
+                &s,
+            );
         }
     }
 
@@ -146,7 +166,13 @@ impl<'a> Canvas<'a> {
                 width: 1.0,
                 ..Default::default()
             };
-            raster::stroke_polyline(&mut self.pixmap, self.current_clip, &transformed_poly, paint, &s);
+            raster::stroke_polyline(
+                &mut self.pixmap,
+                self.current_clip,
+                &transformed_poly,
+                paint,
+                &s,
+            );
         }
     }
 
@@ -160,10 +186,27 @@ impl<'a> Canvas<'a> {
         raster::blit_image_565(&mut self.pixmap, self.current_clip, tx, ty, w, h, pixels);
     }
 
-    pub fn blit_image_565_with_alpha(&mut self, x: i32, y: i32, w: u32, h: u32, rgb: &[u16], alpha: &[u8]) {
+    pub fn blit_image_565_with_alpha(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        rgb: &[u16],
+        alpha: &[u8],
+    ) {
         let tx = x + (self.current_transform.tx.round() as i32);
         let ty = y + (self.current_transform.ty.round() as i32);
-        raster::blit_image_565_with_alpha(&mut self.pixmap, self.current_clip, tx, ty, w, h, rgb, alpha);
+        raster::blit_image_565_with_alpha(
+            &mut self.pixmap,
+            self.current_clip,
+            tx,
+            ty,
+            w,
+            h,
+            rgb,
+            alpha,
+        );
     }
 
     pub fn blit_image_565_with_alpha_scaled(

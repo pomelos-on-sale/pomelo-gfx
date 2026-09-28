@@ -7,7 +7,9 @@ pub mod pixmap;
 pub mod raster;
 
 pub use canvas::Canvas;
-pub use color::{blend_rgb565, blend_rgb888_onto_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color, ColorU8};
+pub use color::{
+    blend_rgb565, blend_rgb888_onto_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color, ColorU8,
+};
 pub use geometry::{Point, RRect, Radius, Rect, Size, Transform};
 pub use paint::{
     FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Shader, SpreadMode, Stroke,
@@ -17,9 +19,7 @@ pub use pixmap::{Pixmap, Pixmap565, Pixmap565Mut, PixmapMut};
 
 pub mod prelude {
     pub use crate::canvas::Canvas;
-    pub use crate::color::{
-        blend_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color,
-    };
+    pub use crate::color::{blend_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color};
     pub use crate::geometry::{Point, RRect, Radius, Rect, Size, Transform};
     pub use crate::paint::{
         FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Shader, SpreadMode,
@@ -79,7 +79,10 @@ mod tests {
         let mut canvas = Canvas::new(pixmap.as_mut());
 
         canvas.draw_rrect(
-            RRect::from_rect_radius(Rect::from_ltwh(10.0, 10.0, 80.0, 50.0), Radius::circular(10.0)),
+            RRect::from_rect_radius(
+                Rect::from_ltwh(10.0, 10.0, 80.0, 50.0),
+                Radius::circular(10.0),
+            ),
             Color::BLUE,
         );
 

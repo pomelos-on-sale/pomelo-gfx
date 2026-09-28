@@ -73,7 +73,14 @@ impl Path {
     }
 }
 
-fn subdivide_quad(p0: Point, p1: Point, p2: Point, tol_sq: f32, depth: usize, out: &mut Vec<Point>) {
+fn subdivide_quad(
+    p0: Point,
+    p1: Point,
+    p2: Point,
+    tol_sq: f32,
+    depth: usize,
+    out: &mut Vec<Point>,
+) {
     if depth > 8 || point_line_dist_sq(p1, p0, p2) <= tol_sq {
         out.push(p2);
         return;
@@ -156,7 +163,8 @@ impl PathBuilder {
     }
 
     pub fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        self.verbs.push(PathVerb::QuadTo(Point::new(x1, y1), Point::new(x, y)));
+        self.verbs
+            .push(PathVerb::QuadTo(Point::new(x1, y1), Point::new(x, y)));
     }
 
     pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {

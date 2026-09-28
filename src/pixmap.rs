@@ -21,7 +21,11 @@ impl Pixmap565 {
         let mut data = Vec::new();
         data.try_reserve_exact(total).ok()?;
         data.resize(total, 0u16);
-        Some(Self { width, height, data })
+        Some(Self {
+            width,
+            height,
+            data,
+        })
     }
 
     /// Create from existing Vec of RGB565 words.
@@ -29,7 +33,11 @@ impl Pixmap565 {
         if width == 0 || height == 0 || data.len() != (width as usize) * (height as usize) {
             None
         } else {
-            Some(Self { width, height, data })
+            Some(Self {
+                width,
+                height,
+                data,
+            })
         }
     }
 
@@ -70,11 +78,7 @@ impl Pixmap565 {
 
     /// Extract a sub-rectangle of RGB565 pixels into `dst` slice.
     /// Fast slice-copy per row without any pixel format conversion.
-    pub fn extract_rect(
-        &self,
-        rect: Rect,
-        dst: &mut [u16],
-    ) -> (i32, i32, i32, i32, usize) {
+    pub fn extract_rect(&self, rect: Rect, dst: &mut [u16]) -> (i32, i32, i32, i32, usize) {
         let pix_w = self.width as i32;
         let pix_h = self.height as i32;
 

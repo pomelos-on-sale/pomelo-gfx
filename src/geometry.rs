@@ -32,7 +32,10 @@ pub struct Size {
 }
 
 impl Size {
-    pub const ZERO: Self = Self { width: 0.0, height: 0.0 };
+    pub const ZERO: Self = Self {
+        width: 0.0,
+        height: 0.0,
+    };
 
     #[inline(always)]
     pub const fn new(width: f32, height: f32) -> Self {
@@ -54,14 +57,24 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0, width: 0.0, height: 0.0 };
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    };
 
     #[inline(always)]
     pub const fn from_xywh(x: f32, y: f32, width: f32, height: f32) -> Option<Self> {
         if width < 0.0 || height < 0.0 {
             None
         } else {
-            Some(Self { x, y, width, height })
+            Some(Self {
+                x,
+                y,
+                width,
+                height,
+            })
         }
     }
 
@@ -79,7 +92,12 @@ impl Rect {
     pub fn from_ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
         let w = (right - left).max(0.0);
         let h = (bottom - top).max(0.0);
-        Self { x: left, y: top, width: w, height: h }
+        Self {
+            x: left,
+            y: top,
+            width: w,
+            height: h,
+        }
     }
 
     #[inline(always)]
@@ -138,7 +156,10 @@ impl Radius {
 
     #[inline(always)]
     pub const fn circular(radius: f32) -> Self {
-        Self { x: radius, y: radius }
+        Self {
+            x: radius,
+            y: radius,
+        }
     }
 
     #[inline(always)]
@@ -203,7 +224,14 @@ impl Transform {
 
     #[inline(always)]
     pub const fn from_row(sx: f32, ky: f32, kx: f32, sy: f32, tx: f32, ty: f32) -> Self {
-        Self { sx, ky, kx, sy, tx, ty }
+        Self {
+            sx,
+            ky,
+            kx,
+            sy,
+            tx,
+            ty,
+        }
     }
 
     #[inline(always)]
