@@ -27,9 +27,8 @@ Those are indicative figures from one device session, not a benchmark suite.
 
 ## Status
 
-Two consumers inside Pomelo OS:
+One consumer inside Pomelo OS:
 
-* `tiny-flutter` — a Flutter-like widget framework
 * `pomelo-iced-backend` — the platform layer that runs [iced](https://github.com/iced-rs/iced)
   on this panel (for the frame buffer itself)
 
@@ -58,4 +57,4 @@ there unchanged.
 
 ## License
 
-MIT OR Apache-2.0.
+GPL-3.0-only — see [`LICENSE`](LICENSE).
