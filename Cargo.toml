@@ -5,17 +5,4 @@ edition = "2021"
 description = "High-performance embedded 16-bit RGB565 2D vector graphics rasterizer"
 license = "MIT OR Apache-2.0"
 
-[features]
-default = []
-# The optional `tiny-skia` rasterizer (antialiased RGBA8888, converted to RGB565).
-skia = ["dep:tiny-skia"]
-# Per-operation timing counters for the skia backend (diagnostics only).
-profile = []
-
 [dependencies]
-tiny-skia = { version = "0.11", default-features = false, features = ["std"], optional = true }
-
-# Tests only: PNG export so a rendered frame can be inspected by eye. Never built
-# for the firmware (dev-dependencies are not activated for a dependency).
-[dev-dependencies]
-tiny-skia = { version = "0.11", default-features = false, features = ["std", "png-format"] }

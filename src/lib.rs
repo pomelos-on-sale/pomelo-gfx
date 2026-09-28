@@ -6,10 +6,6 @@ pub mod path;
 pub mod pixmap;
 pub mod raster;
 
-/// The optional [`tiny_skia`] rasterizer (antialiased RGBA8888 -> RGB565).
-#[cfg(feature = "skia")]
-pub mod skia;
-
 pub use canvas::Canvas;
 pub use color::{blend_rgb565, blend_rgb888_onto_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color, ColorU8};
 pub use geometry::{Point, RRect, Radius, Rect, Size, Transform};
