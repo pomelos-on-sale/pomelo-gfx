@@ -104,6 +104,27 @@ impl<'a> Canvas<'a> {
         raster::fill_rect(&mut self.pixmap, self.current_clip, transformed, color);
     }
 
+    /// Fills a rectangle with a [`Paint`] rather than a colour: the shader-aware twin of
+    /// [`Canvas::draw_rect`].
+    ///
+    /// It goes through the same quad filler a stroke's segments use, which is what lets a gradient
+    /// land in a rectangle. `fill_path` cannot stand in for this: it flattens the path and
+    /// *strokes* the outline with a 1 px line, so a filled shape comes out as an outline and the
+    /// fill rule is never read.
+    pub fn fill_rect(&mut self, rect: Rect, paint: &Paint) {
+        let r = self.current_transform.map_rect(rect);
+
+        raster::fill_convex_quad(
+            &mut self.pixmap,
+            self.current_clip,
+            Point::from_xy(r.left(), r.top()),
+            Point::from_xy(r.right(), r.top()),
+            Point::from_xy(r.right(), r.bottom()),
+            Point::from_xy(r.left(), r.bottom()),
+            paint,
+        );
+    }
+
     pub fn draw_rrect(&mut self, rrect: RRect, color: Color) {
         let transformed = self.current_transform.map_rrect(rrect);
         raster::fill_rrect(&mut self.pixmap, self.current_clip, transformed, color);

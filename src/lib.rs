@@ -91,6 +91,43 @@ mod tests {
     }
 
     #[test]
+    fn test_gradient_filled_rect() {
+        let mut pixmap = Pixmap565::new(100, 20).expect("failed to allocate");
+        let mut canvas = Canvas::new(pixmap.as_mut());
+
+        let shader = LinearGradient::new(
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            vec![
+                GradientStop::new(0.0, Color::RED),
+                GradientStop::new(1.0, Color::BLUE),
+            ],
+            SpreadMode::Pad,
+            Transform::identity(),
+        )
+        .expect("a gradient");
+
+        canvas.fill_rect(
+            Rect::from_ltwh(0.0, 0.0, 100.0, 20.0),
+            &Paint {
+                shader,
+                anti_alias: true,
+            },
+        );
+
+        let left = rgb565_to_rgb888(pixmap.data()[10 * 100 + 2]);
+        let right = rgb565_to_rgb888(pixmap.data()[10 * 100 + 97]);
+
+        // A red-to-blue gradient has to be red on one side and blue on the other. A solid fill
+        // would make one of these assertions fail whichever end it picked.
+        assert!(left.0 > left.2, "the left end is the first stop: {left:?}");
+        assert!(
+            right.2 > right.0,
+            "the right end is the last stop: {right:?}"
+        );
+    }
+
+    #[test]
     fn test_path_flatten_and_stroke() {
         let mut pb = PathBuilder::new();
         pb.move_to(0.0, 0.0);

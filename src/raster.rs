@@ -735,7 +735,13 @@ pub fn stroke_polyline(
     }
 }
 
-fn fill_convex_quad(
+/// Fills a convex quadrilateral, sampling `paint`'s shader per pixel.
+///
+/// This is the shader-aware filler: a solid colour comes out solid, and a gradient comes out as
+/// the gradient. The corners may be given in either winding. It is `pub` because `Canvas` needs
+/// it for a rectangle whose paint is not a colour -- `raster::fill_rect` takes a `Color` and has
+/// the cheaper axis-aligned path.
+pub fn fill_convex_quad(
     pixmap: &mut Pixmap565Mut<'_>,
     clip: Option<Rect>,
     q0: Point,
