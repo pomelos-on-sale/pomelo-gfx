@@ -261,4 +261,31 @@ impl Transform {
             y: self.ky * p.x + self.sy * p.y + self.ty,
         }
     }
+
+    /// Map an axis-aligned rectangle.
+    ///
+    /// Skew is ignored, which is the model both rasterizers draw under (they
+    /// only ever apply scale and translate).
+    #[inline(always)]
+    pub fn map_rect(&self, rect: Rect) -> Rect {
+        Rect {
+            x: self.sx * rect.x + self.tx,
+            y: self.sy * rect.y + self.ty,
+            width: self.sx * rect.width,
+            height: self.sy * rect.height,
+        }
+    }
+
+    /// Map a rounded rectangle: the box through [`Self::map_rect`], the corner
+    /// radii by the scale factors.
+    #[inline(always)]
+    pub fn map_rrect(&self, rrect: RRect) -> RRect {
+        RRect {
+            rect: self.map_rect(rrect.rect),
+            radius: Radius {
+                x: self.sx * rrect.radius.x,
+                y: self.sy * rrect.radius.y,
+            },
+        }
+    }
 }

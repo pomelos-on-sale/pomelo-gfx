@@ -72,13 +72,7 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn clip_rect(&mut self, rect: Rect) {
-        // Map rect with current transform translation and scale
-        let mapped = Rect {
-            x: self.current_transform.sx * rect.x + self.current_transform.tx,
-            y: self.current_transform.sy * rect.y + self.current_transform.ty,
-            width: self.current_transform.sx * rect.width,
-            height: self.current_transform.sy * rect.height,
-        };
+        let mapped = self.current_transform.map_rect(rect);
         self.current_clip = match self.current_clip {
             Some(prev) => prev.intersect(&mapped),
             None => Some(mapped),
@@ -101,49 +95,18 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_rect(&mut self, rect: Rect, color: Color) {
-        let transformed = Rect {
-            x: self.current_transform.sx * rect.x + self.current_transform.tx,
-            y: self.current_transform.sy * rect.y + self.current_transform.ty,
-            width: self.current_transform.sx * rect.width,
-            height: self.current_transform.sy * rect.height,
-        };
+        let transformed = self.current_transform.map_rect(rect);
         raster::fill_rect(&mut self.pixmap, self.current_clip, transformed, color);
     }
 
     pub fn draw_rrect(&mut self, rrect: RRect, color: Color) {
-        let sx = self.current_transform.sx;
-        let sy = self.current_transform.sy;
-        let transformed = RRect {
-            rect: Rect {
-                x: sx * rrect.rect.x + self.current_transform.tx,
-                y: sy * rrect.rect.y + self.current_transform.ty,
-                width: sx * rrect.rect.width,
-                height: sy * rrect.rect.height,
-            },
-            radius: crate::geometry::Radius {
-                x: sx * rrect.radius.x,
-                y: sy * rrect.radius.y,
-            },
-        };
+        let transformed = self.current_transform.map_rrect(rrect);
         raster::fill_rrect(&mut self.pixmap, self.current_clip, transformed, color);
     }
 
     pub fn draw_rrect_stroke(&mut self, rrect: RRect, color: Color, stroke_width: f32) {
-        let sx = self.current_transform.sx;
-        let sy = self.current_transform.sy;
-        let transformed = RRect {
-            rect: Rect {
-                x: sx * rrect.rect.x + self.current_transform.tx,
-                y: sy * rrect.rect.y + self.current_transform.ty,
-                width: sx * rrect.rect.width,
-                height: sy * rrect.rect.height,
-            },
-            radius: crate::geometry::Radius {
-                x: sx * rrect.radius.x,
-                y: sy * rrect.radius.y,
-            },
-        };
-        let sw = stroke_width * sx;
+        let transformed = self.current_transform.map_rrect(rrect);
+        let sw = stroke_width * self.current_transform.sx;
         raster::stroke_rrect(&mut self.pixmap, self.current_clip, transformed, color, sw);
     }
 
