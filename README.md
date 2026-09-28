@@ -27,10 +27,12 @@ Those are indicative figures from one device session, not a benchmark suite.
 
 ## Status
 
-One consumer inside Pomelo OS:
+Two crates in Pomelo OS draw through it:
 
-* `pomelo-iced-backend` — the platform layer that runs [iced](https://github.com/iced-rs/iced)
-  on this panel (for the frame buffer itself)
+* `iced-pomelo-gfx` — iced's renderer contract, over this rasteriser: the same position in the
+  stack as `iced_tiny_skia`
+* `pomelo-iced-host` — the platform layer that runs [iced](https://github.com/iced-rs/iced) on
+  this panel (for the frame buffer itself)
 
 **No antialiasing for paths yet**: filled rects, rounded rects and paths are hard-edged.
 Coverage-mask blits *are* antialiased, because `Canvas::blit_mask` blends an 8-bit mask —
