@@ -1,4 +1,4 @@
-# tiny-gfx
+# pomelo-gfx
 
 A hand-written, dependency-free 2D rasterizer that draws **straight into an RGB565
 frame buffer** — the native format of the 16-bit panels this targets (a 480×480 CO5300
@@ -30,7 +30,7 @@ Those are indicative figures from one device session, not a benchmark suite.
 Two consumers inside Pomelo OS:
 
 * `tiny-flutter` — a Flutter-like widget framework
-* `iced-pomelo` — the platform layer that runs [iced](https://github.com/iced-rs/iced)
+* `pomelo-iced-backend` — the platform layer that runs [iced](https://github.com/iced-rs/iced)
   on this panel (for the frame buffer itself)
 
 **No antialiasing for paths yet**: filled rects, rounded rects and paths are hard-edged.

@@ -1,10 +1,10 @@
 [package]
-name = "tiny-gfx"
+name = "pomelo-gfx"
 version = "0.1.0"
 edition = "2021"
 description = "A hand-written, dependency-free 2D rasterizer that draws straight into an RGB565 frame buffer"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/pomelos-on-sale/tiny-gfx"
+repository = "https://github.com/pomelos-on-sale/pomelo-gfx"
 readme = "README.md"
 keywords = ["graphics", "rasterizer", "rgb565", "embedded"]
 categories = ["graphics", "embedded"]
