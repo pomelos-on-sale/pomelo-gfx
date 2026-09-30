@@ -10,3 +10,4 @@ keywords = ["graphics", "rasterizer", "rgb565", "embedded"]
 categories = ["graphics", "embedded"]
 
 [dependencies]
+kurbo = { version = "0.10", default-features = false, features = ["std"] }

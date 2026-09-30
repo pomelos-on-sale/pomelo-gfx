@@ -105,6 +105,9 @@ impl LinearGradient {
         }
 
         let mut t = ((p.x - self.start.x) * dx + (p.y - self.start.y) * dy) / len_sq;
+        if t.is_nan() || t.is_infinite() {
+            return self.stops[0].color;
+        }
 
         t = match self.spread {
             SpreadMode::Pad => t.clamp(0.0, 1.0),
@@ -186,6 +189,83 @@ impl Default for Stroke {
             miter_limit: 4.0,
             line_cap: LineCap::default(),
             line_join: LineJoin::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// kurbo stroke interoperability
+// ---------------------------------------------------------------------------
+
+impl From<LineCap> for kurbo::Cap {
+    #[inline(always)]
+    fn from(c: LineCap) -> Self {
+        match c {
+            LineCap::Butt => kurbo::Cap::Butt,
+            LineCap::Round => kurbo::Cap::Round,
+            LineCap::Square => kurbo::Cap::Square,
+        }
+    }
+}
+
+impl From<kurbo::Cap> for LineCap {
+    #[inline(always)]
+    fn from(c: kurbo::Cap) -> Self {
+        match c {
+            kurbo::Cap::Butt => LineCap::Butt,
+            kurbo::Cap::Round => LineCap::Round,
+            kurbo::Cap::Square => LineCap::Square,
+        }
+    }
+}
+
+impl From<LineJoin> for kurbo::Join {
+    #[inline(always)]
+    fn from(j: LineJoin) -> Self {
+        match j {
+            LineJoin::Miter => kurbo::Join::Miter,
+            LineJoin::Round => kurbo::Join::Round,
+            LineJoin::Bevel => kurbo::Join::Bevel,
+        }
+    }
+}
+
+impl From<kurbo::Join> for LineJoin {
+    #[inline(always)]
+    fn from(j: kurbo::Join) -> Self {
+        match j {
+            kurbo::Join::Miter => LineJoin::Miter,
+            kurbo::Join::Round => LineJoin::Round,
+            kurbo::Join::Bevel => LineJoin::Bevel,
+        }
+    }
+}
+
+impl From<&Stroke> for kurbo::Stroke {
+    #[inline(always)]
+    fn from(s: &Stroke) -> Self {
+        kurbo::Stroke::new(s.width as f64)
+            .with_caps(s.line_cap.into())
+            .with_join(s.line_join.into())
+            .with_miter_limit(s.miter_limit as f64)
+    }
+}
+
+impl From<Stroke> for kurbo::Stroke {
+    #[inline(always)]
+    fn from(s: Stroke) -> Self {
+        (&s).into()
+    }
+}
+
+impl From<kurbo::Stroke> for Stroke {
+    #[inline(always)]
+    fn from(s: kurbo::Stroke) -> Self {
+        Stroke {
+            width: s.width as f32,
+            miter_limit: s.miter_limit as f32,
+            line_cap: s.start_cap.into(),
+            line_join: s.join.into(),
         }
     }
 }

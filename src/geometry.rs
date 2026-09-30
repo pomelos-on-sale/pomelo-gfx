@@ -19,9 +19,7 @@ impl Point {
 
     #[inline(always)]
     pub fn distance(&self, other: Point) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        (dx * dx + dy * dy).sqrt()
+        (self.x - other.x).hypot(self.y - other.y)
     }
 }
 
@@ -294,26 +292,136 @@ impl Transform {
     ///
     /// Skew is ignored, which is the model both rasterizers draw under (they
     /// only ever apply scale and translate).
+    ///
+    /// Correctly handles negative scale factors (reflections) by ensuring
+    /// width and height remain non-negative and (x, y) remains the minimum corner.
     #[inline(always)]
     pub fn map_rect(&self, rect: Rect) -> Rect {
+        let x0 = self.sx * rect.x + self.tx;
+        let x1 = self.sx * (rect.x + rect.width) + self.tx;
+        let y0 = self.sy * rect.y + self.ty;
+        let y1 = self.sy * (rect.y + rect.height) + self.ty;
+
+        let min_x = x0.min(x1);
+        let min_y = y0.min(y1);
+        let width = (x1 - x0).abs();
+        let height = (y1 - y0).abs();
+
         Rect {
-            x: self.sx * rect.x + self.tx,
-            y: self.sy * rect.y + self.ty,
-            width: self.sx * rect.width,
-            height: self.sy * rect.height,
+            x: min_x,
+            y: min_y,
+            width,
+            height,
         }
     }
 
     /// Map a rounded rectangle: the box through [`Self::map_rect`], the corner
-    /// radii by the scale factors.
+    /// radii by the absolute scale factors.
     #[inline(always)]
     pub fn map_rrect(&self, rrect: RRect) -> RRect {
         RRect {
             rect: self.map_rect(rrect.rect),
             radius: Radius {
-                x: self.sx * rrect.radius.x,
-                y: self.sy * rrect.radius.y,
+                x: (self.sx * rrect.radius.x).abs(),
+                y: (self.sy * rrect.radius.y).abs(),
             },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// kurbo interoperability
+// ---------------------------------------------------------------------------
+
+impl From<Point> for kurbo::Point {
+    #[inline(always)]
+    fn from(p: Point) -> Self {
+        kurbo::Point::new(p.x as f64, p.y as f64)
+    }
+}
+
+impl From<kurbo::Point> for Point {
+    #[inline(always)]
+    fn from(p: kurbo::Point) -> Self {
+        Point::new(p.x as f32, p.y as f32)
+    }
+}
+
+impl From<Point> for kurbo::Vec2 {
+    #[inline(always)]
+    fn from(p: Point) -> Self {
+        kurbo::Vec2::new(p.x as f64, p.y as f64)
+    }
+}
+
+impl From<kurbo::Vec2> for Point {
+    #[inline(always)]
+    fn from(v: kurbo::Vec2) -> Self {
+        Point::new(v.x as f32, v.y as f32)
+    }
+}
+
+impl From<Rect> for kurbo::Rect {
+    #[inline(always)]
+    fn from(r: Rect) -> Self {
+        kurbo::Rect::new(
+            r.x as f64,
+            r.y as f64,
+            (r.x + r.width) as f64,
+            (r.y + r.height) as f64,
+        )
+    }
+}
+
+impl From<kurbo::Rect> for Rect {
+    #[inline(always)]
+    fn from(r: kurbo::Rect) -> Self {
+        Rect::from_ltrb(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32)
+    }
+}
+
+impl From<RRect> for kurbo::RoundedRect {
+    #[inline(always)]
+    fn from(r: RRect) -> Self {
+        let rect = kurbo::Rect::from(r.rect);
+        kurbo::RoundedRect::from_rect(rect, r.radius.x as f64)
+    }
+}
+
+impl From<kurbo::RoundedRect> for RRect {
+    #[inline(always)]
+    fn from(r: kurbo::RoundedRect) -> Self {
+        let rect = Rect::from(r.rect());
+        let radii = r.radii();
+        RRect::from_rect_xy(rect, radii.top_left as f32, radii.top_left as f32)
+    }
+}
+
+impl From<Transform> for kurbo::Affine {
+    #[inline(always)]
+    fn from(t: Transform) -> Self {
+        kurbo::Affine::new([
+            t.sx as f64,
+            t.ky as f64,
+            t.kx as f64,
+            t.sy as f64,
+            t.tx as f64,
+            t.ty as f64,
+        ])
+    }
+}
+
+impl From<kurbo::Affine> for Transform {
+    #[inline(always)]
+    fn from(a: kurbo::Affine) -> Self {
+        let c = a.as_coeffs();
+        Transform {
+            sx: c[0] as f32,
+            ky: c[1] as f32,
+            kx: c[2] as f32,
+            sy: c[3] as f32,
+            tx: c[4] as f32,
+            ty: c[5] as f32,
         }
     }
 }

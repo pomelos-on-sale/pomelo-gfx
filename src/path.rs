@@ -23,47 +23,45 @@ impl Path {
         self.verbs.is_empty()
     }
 
-    /// Flatten this path into one or more polylines of line segments.
+    /// Precise mathematical bounding box of this path, calculated via kurbo derivative extrema.
+    pub fn bounds(&self) -> Rect {
+        use kurbo::Shape;
+        let bez = kurbo::BezPath::from(self);
+        Rect::from(bez.bounding_box())
+    }
+
+    /// Flatten this path into one or more polylines of line segments using kurbo's
+    /// curvature-adaptive non-recursive subdivision.
     pub fn flatten(&self, tolerance: f32) -> Vec<Vec<Point>> {
         let mut polylines = Vec::new();
         let mut current_poly = Vec::new();
-        let mut start_pt = Point::ZERO;
-        let mut current_pt = Point::ZERO;
-        let tol_sq = (tolerance.max(0.1)).powi(2);
+        let bez = kurbo::BezPath::from(self);
+        let tol = (tolerance.max(0.05)) as f64;
 
-        for verb in &self.verbs {
-            match *verb {
-                PathVerb::MoveTo(p) => {
+        kurbo::flatten(bez, tol, |el| {
+            match el {
+                kurbo::PathEl::MoveTo(p) => {
                     if !current_poly.is_empty() {
                         polylines.push(std::mem::take(&mut current_poly));
                     }
-                    start_pt = p;
-                    current_pt = p;
-                    current_poly.push(p);
+                    current_poly.push(Point::from(p));
                 }
-                PathVerb::LineTo(p) => {
-                    current_pt = p;
-                    current_poly.push(p);
+                kurbo::PathEl::LineTo(p) => {
+                    current_poly.push(Point::from(p));
                 }
-                PathVerb::QuadTo(p1, p2) => {
-                    subdivide_quad(current_pt, p1, p2, tol_sq, 0, &mut current_poly);
-                    current_pt = p2;
-                }
-                PathVerb::CubicTo(p1, p2, p3) => {
-                    subdivide_cubic(current_pt, p1, p2, p3, tol_sq, 0, &mut current_poly);
-                    current_pt = p3;
-                }
-                PathVerb::Close => {
-                    if current_pt != start_pt {
-                        current_poly.push(start_pt);
-                        current_pt = start_pt;
+                kurbo::PathEl::ClosePath => {
+                    if let Some(&first) = current_poly.first() {
+                        if current_poly.last() != Some(&first) {
+                            current_poly.push(first);
+                        }
                     }
                     if !current_poly.is_empty() {
                         polylines.push(std::mem::take(&mut current_poly));
                     }
                 }
+                _ => {}
             }
-        }
+        });
 
         if !current_poly.is_empty() {
             polylines.push(current_poly);
@@ -71,77 +69,92 @@ impl Path {
 
         polylines
     }
-}
-
-fn subdivide_quad(
-    p0: Point,
-    p1: Point,
-    p2: Point,
-    tol_sq: f32,
-    depth: usize,
-    out: &mut Vec<Point>,
-) {
-    if depth > 8 || point_line_dist_sq(p1, p0, p2) <= tol_sq {
-        out.push(p2);
-        return;
-    }
-    let m01 = midpoint(p0, p1);
-    let m12 = midpoint(p1, p2);
-    let m012 = midpoint(m01, m12);
-
-    subdivide_quad(p0, m01, m012, tol_sq, depth + 1, out);
-    subdivide_quad(m012, m12, p2, tol_sq, depth + 1, out);
-}
-
-fn subdivide_cubic(
-    p0: Point,
-    p1: Point,
-    p2: Point,
-    p3: Point,
-    tol_sq: f32,
-    depth: usize,
-    out: &mut Vec<Point>,
-) {
-    let d1 = point_line_dist_sq(p1, p0, p3);
-    let d2 = point_line_dist_sq(p2, p0, p3);
-    if depth > 10 || (d1 <= tol_sq && d2 <= tol_sq) {
-        out.push(p3);
-        return;
-    }
-
-    let m01 = midpoint(p0, p1);
-    let m12 = midpoint(p1, p2);
-    let m23 = midpoint(p2, p3);
-
-    let m012 = midpoint(m01, m12);
-    let m123 = midpoint(m12, m23);
-
-    let m0123 = midpoint(m012, m123);
-
-    subdivide_cubic(p0, m01, m012, m0123, tol_sq, depth + 1, out);
-    subdivide_cubic(m0123, m123, m23, p3, tol_sq, depth + 1, out);
-}
-
-#[inline(always)]
-fn midpoint(a: Point, b: Point) -> Point {
-    Point {
-        x: (a.x + b.x) * 0.5,
-        y: (a.y + b.y) * 0.5,
+    /// Construct a `Path` from any `kurbo::Shape` at the specified tolerance.
+    pub fn from_shape(shape: &impl kurbo::Shape, tolerance: f64) -> Self {
+        let mut path = Path::new();
+        for el in shape.path_elements(tolerance) {
+            match el {
+                kurbo::PathEl::MoveTo(p) => path.verbs.push(PathVerb::MoveTo(p.into())),
+                kurbo::PathEl::LineTo(p) => path.verbs.push(PathVerb::LineTo(p.into())),
+                kurbo::PathEl::QuadTo(p1, p2) => {
+                    path.verbs.push(PathVerb::QuadTo(p1.into(), p2.into()))
+                }
+                kurbo::PathEl::CurveTo(p1, p2, p3) => {
+                    path.verbs.push(PathVerb::CubicTo(p1.into(), p2.into(), p3.into()))
+                }
+                kurbo::PathEl::ClosePath => path.verbs.push(PathVerb::Close),
+            }
+        }
+        path
     }
 }
 
-#[inline(always)]
-fn point_line_dist_sq(p: Point, a: Point, b: Point) -> f32 {
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let len_sq = dx * dx + dy * dy;
-    if len_sq < 1e-6 {
-        let px = p.x - a.x;
-        let py = p.y - a.y;
-        return px * px + py * py;
+impl From<kurbo::Circle> for Path {
+    fn from(c: kurbo::Circle) -> Self {
+        Path::from_shape(&c, 0.1)
     }
-    let cross = (p.x - a.x) * dy - (p.y - a.y) * dx;
-    (cross * cross) / len_sq
+}
+
+impl From<kurbo::RoundedRect> for Path {
+    fn from(r: kurbo::RoundedRect) -> Self {
+        Path::from_shape(&r, 0.1)
+    }
+}
+
+impl From<kurbo::Rect> for Path {
+    fn from(r: kurbo::Rect) -> Self {
+        Path::from_shape(&r, 0.1)
+    }
+}
+
+impl From<kurbo::Line> for Path {
+    fn from(l: kurbo::Line) -> Self {
+        Path::from_shape(&l, 0.1)
+    }
+}
+
+impl From<&Path> for kurbo::BezPath {
+    fn from(path: &Path) -> Self {
+        let mut bez = kurbo::BezPath::new();
+        for verb in &path.verbs {
+            match *verb {
+                PathVerb::MoveTo(p) => bez.move_to(kurbo::Point::from(p)),
+                PathVerb::LineTo(p) => bez.line_to(kurbo::Point::from(p)),
+                PathVerb::QuadTo(p1, p2) => {
+                    bez.quad_to(kurbo::Point::from(p1), kurbo::Point::from(p2))
+                }
+                PathVerb::CubicTo(p1, p2, p3) => {
+                    bez.curve_to(
+                        kurbo::Point::from(p1),
+                        kurbo::Point::from(p2),
+                        kurbo::Point::from(p3),
+                    )
+                }
+                PathVerb::Close => bez.close_path(),
+            }
+        }
+        bez
+    }
+}
+
+impl From<kurbo::BezPath> for Path {
+    fn from(bez: kurbo::BezPath) -> Self {
+        let mut path = Path::new();
+        for el in bez.elements() {
+            match *el {
+                kurbo::PathEl::MoveTo(p) => path.verbs.push(PathVerb::MoveTo(p.into())),
+                kurbo::PathEl::LineTo(p) => path.verbs.push(PathVerb::LineTo(p.into())),
+                kurbo::PathEl::QuadTo(p1, p2) => {
+                    path.verbs.push(PathVerb::QuadTo(p1.into(), p2.into()))
+                }
+                kurbo::PathEl::CurveTo(p1, p2, p3) => {
+                    path.verbs.push(PathVerb::CubicTo(p1.into(), p2.into(), p3.into()))
+                }
+                kurbo::PathEl::ClosePath => path.verbs.push(PathVerb::Close),
+            }
+        }
+        path
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -179,22 +192,40 @@ impl PathBuilder {
         self.verbs.push(PathVerb::Close);
     }
 
+    pub fn push_shape(&mut self, shape: &impl kurbo::Shape, tolerance: f64) {
+        for el in shape.path_elements(tolerance) {
+            match el {
+                kurbo::PathEl::MoveTo(p) => self.move_to(p.x as f32, p.y as f32),
+                kurbo::PathEl::LineTo(p) => self.line_to(p.x as f32, p.y as f32),
+                kurbo::PathEl::QuadTo(p1, p2) => {
+                    self.quad_to(p1.x as f32, p1.y as f32, p2.x as f32, p2.y as f32)
+                }
+                kurbo::PathEl::CurveTo(p1, p2, p3) => self.cubic_to(
+                    p1.x as f32,
+                    p1.y as f32,
+                    p2.x as f32,
+                    p2.y as f32,
+                    p3.x as f32,
+                    p3.y as f32,
+                ),
+                kurbo::PathEl::ClosePath => self.close(),
+            }
+        }
+    }
+
     pub fn push_rect(&mut self, rect: Rect) {
-        self.move_to(rect.x, rect.y);
-        self.line_to(rect.right(), rect.y);
-        self.line_to(rect.right(), rect.bottom());
-        self.line_to(rect.x, rect.bottom());
-        self.close();
+        let kr: kurbo::Rect = rect.into();
+        self.push_shape(&kr, 0.1);
     }
 
     pub fn push_circle(&mut self, cx: f32, cy: f32, radius: f32) {
-        let k = radius * 0.55228475;
-        self.move_to(cx + radius, cy);
-        self.cubic_to(cx + radius, cy + k, cx + k, cy + radius, cx, cy + radius);
-        self.cubic_to(cx - k, cy + radius, cx - radius, cy + k, cx - radius, cy);
-        self.cubic_to(cx - radius, cy - k, cx - k, cy - radius, cx, cy - radius);
-        self.cubic_to(cx + k, cy - radius, cx + radius, cy - k, cx + radius, cy);
-        self.close();
+        let circle = kurbo::Circle::new((cx as f64, cy as f64), radius as f64);
+        self.push_shape(&circle, 0.1);
+    }
+
+    pub fn push_rrect(&mut self, rrect: crate::geometry::RRect) {
+        let kr: kurbo::RoundedRect = rrect.into();
+        self.push_shape(&kr, 0.1);
     }
 
     pub fn finish(self) -> Option<Path> {

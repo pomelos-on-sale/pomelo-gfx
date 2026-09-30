@@ -226,4 +226,78 @@ mod tests {
             "expected at least 100 anti-aliased pixels along the vertical stroke edges, got {aa_v}"
         );
     }
+
+    #[test]
+    fn test_kurbo_interop() {
+        // 1. Point / Rect conversions
+        let pt = Point::new(12.5, 34.75);
+        let kpt: kurbo::Point = pt.into();
+        assert_eq!(Point::from(kpt), pt);
+
+        let rect = Rect::from_ltwh(10.0, 20.0, 100.0, 50.0);
+        let krect: kurbo::Rect = rect.into();
+        assert_eq!(Rect::from(krect), rect);
+
+        // 2. Stroke conversion
+        let stroke = Stroke {
+            width: 3.5,
+            miter_limit: 8.0,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Bevel,
+        };
+        let kstroke: kurbo::Stroke = stroke.clone().into();
+        let back_stroke: Stroke = kstroke.into();
+        assert_eq!(stroke, back_stroke);
+
+        // 3. Circle to Path and bounds
+        let circle = kurbo::Circle::new((50.0, 50.0), 20.0);
+        let path = Path::from(circle);
+        assert!(!path.is_empty());
+        let bounds = path.bounds();
+        assert!((bounds.x - 30.0).abs() < 1e-2);
+        assert!((bounds.y - 30.0).abs() < 1e-2);
+        assert!((bounds.width - 40.0).abs() < 1e-2);
+        assert!((bounds.height - 40.0).abs() < 1e-2);
+
+        // 4. PathBuilder push_shape / push_rrect
+        let mut pb = PathBuilder::new();
+        pb.push_rrect(RRect::from_rect_xy(rect, 5.0, 5.0));
+        let path_rrect = pb.finish().unwrap();
+        assert!(!path_rrect.is_empty());
+        let polylines = path_rrect.flatten(0.1);
+        assert!(!polylines.is_empty());
+    }
+
+    #[test]
+    fn test_transform_robustness_and_gradient_nan() {
+        use crate::paint::{GradientStop, LinearGradient, SpreadMode};
+
+        // 1. Negative scaling / reflection must produce well-formed Rect
+        let t_neg = Transform::from_scale(-1.5, -2.0);
+        let r = Rect::from_ltwh(10.0, 20.0, 30.0, 40.0);
+        let mapped = t_neg.map_rect(r);
+        assert!(mapped.width >= 0.0);
+        assert!(mapped.height >= 0.0);
+        assert_eq!(mapped.width, 45.0);
+        assert_eq!(mapped.height, 80.0);
+        assert_eq!(mapped.x, -60.0);
+        assert_eq!(mapped.y, -120.0);
+
+        // 2. LinearGradient NaN / Inf coordinates handling
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+            stops: vec![
+                GradientStop::new(0.0, Color::RED),
+                GradientStop::new(1.0, Color::BLUE),
+            ],
+            spread: SpreadMode::Pad,
+            transform: Transform::identity(),
+        };
+        let c_nan = grad.color_at(f32::NAN, 0.0);
+        assert_eq!(c_nan, Color::RED);
+
+        let c_inf = grad.color_at(f32::INFINITY, 0.0);
+        assert_eq!(c_inf, Color::RED);
+    }
 }
