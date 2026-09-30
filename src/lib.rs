@@ -89,6 +89,19 @@ mod tests {
         canvas.draw_circle(Point::new(150.0, 150.0), 30.0, Color::GREEN);
         assert_eq!(pixmap.data()[150 * 200 + 150], 0x07E0);
 
+        // Verify that top-facing arc (row 10) has smooth multi-pixel anti-aliasing gradient
+        // across the transition band rather than an abrupt 1-pixel step
+        let aa_count_row10 = (15..20)
+            .filter(|&x| {
+                let px = pixmap.data()[10 * 200 + x];
+                px > 0 && px < 0x001F
+            })
+            .count();
+        assert!(
+            aa_count_row10 >= 2,
+            "expected at least 2 anti-aliased transition pixels on top corner arc, got {aa_count_row10}"
+        );
+
         // Check that the corner arc of the rrect has a smooth anti-aliased edge pixel
         // that is blended between 0x0000 (black) and 0x001F (blue)
         let edge_pixel = pixmap.data()[13 * 200 + 12];
