@@ -88,6 +88,14 @@ mod tests {
 
         canvas.draw_circle(Point::new(150.0, 150.0), 30.0, Color::GREEN);
         assert_eq!(pixmap.data()[150 * 200 + 150], 0x07E0);
+
+        // Check that the corner arc of the rrect has a smooth anti-aliased edge pixel
+        // that is blended between 0x0000 (black) and 0x001F (blue)
+        let edge_pixel = pixmap.data()[13 * 200 + 12];
+        assert!(
+            edge_pixel > 0 && edge_pixel < 0x001F,
+            "expected anti-aliased blend on rrect corner edge, got {edge_pixel:#06x}"
+        );
     }
 
     #[test]

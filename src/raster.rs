@@ -102,7 +102,94 @@ pub fn fill_rect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rect: Rect, 
     }
 }
 
-/// Fill a rounded rectangle with scanline spans.
+/// Signed distance field (SDF) based subpixel coverage calculation for a rounded rectangle.
+/// Returns coverage in [0.0, 1.0] for pixel center (px, py).
+#[inline(always)]
+pub fn rrect_coverage(px: f32, py: f32, rect: &Rect, rx: f32, ry: f32) -> f32 {
+    let cx_left = rect.x + rx;
+    let cx_right = rect.right() - rx;
+    let cy_top = rect.y + ry;
+    let cy_bottom = rect.bottom() - ry;
+
+    let in_x_left = px < cx_left;
+    let in_x_right = px > cx_right;
+    let in_y_top = py < cy_top;
+    let in_y_bottom = py > cy_bottom;
+
+    let qx = if in_x_left {
+        cx_left - px
+    } else if in_x_right {
+        px - cx_right
+    } else {
+        0.0
+    };
+
+    let qy = if in_y_top {
+        cy_top - py
+    } else if in_y_bottom {
+        py - cy_bottom
+    } else {
+        0.0
+    };
+
+    let in_x_corner = in_x_left || in_x_right;
+    let in_y_corner = in_y_top || in_y_bottom;
+
+    let sd = if in_x_corner && in_y_corner {
+        (qx * qx + qy * qy).sqrt() - rx
+    } else if in_x_corner {
+        qx - rx
+    } else if in_y_corner {
+        qy - ry
+    } else {
+        let dist_to_left = px - rect.x;
+        let dist_to_right = rect.right() - px;
+        let dist_to_top = py - rect.y;
+        let dist_to_bottom = rect.bottom() - py;
+        let min_d = dist_to_left.min(dist_to_right).min(dist_to_top).min(dist_to_bottom);
+        -min_d
+    };
+
+    (0.5 - sd).clamp(0.0, 1.0)
+}
+
+/// Signed distance field subpixel coverage for a stroked rounded rectangle.
+#[inline(always)]
+pub fn stroke_rrect_coverage(
+    px: f32,
+    py: f32,
+    rect: &Rect,
+    outer_r: f32,
+    inner_rect: &Rect,
+    inner_r: f32,
+) -> f32 {
+    let cov_outer = rrect_coverage(px, py, rect, outer_r, outer_r);
+    if cov_outer <= 0.0 {
+        return 0.0;
+    }
+    let cov_inner = if px >= inner_rect.x - 0.5
+        && px <= inner_rect.right() + 0.5
+        && py >= inner_rect.y - 0.5
+        && py <= inner_rect.bottom() + 0.5
+    {
+        rrect_coverage(px, py, inner_rect, inner_r, inner_r)
+    } else {
+        0.0
+    };
+    (cov_outer - cov_inner).clamp(0.0, 1.0)
+}
+
+/// Signed distance field subpixel coverage for a circle.
+#[inline(always)]
+pub fn circle_coverage(px: f32, py: f32, center: Point, radius: f32) -> f32 {
+    let dx = px - center.x;
+    let dy = py - center.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    let sd = dist - radius;
+    (0.5 - sd).clamp(0.0, 1.0)
+}
+
+/// Fill a rounded rectangle with scanline spans and subpixel anti-aliasing.
 pub fn fill_rrect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rrect: RRect, color: Color) {
     let rect = rrect.rect;
     if rect.width <= 0.0 || rect.height <= 0.0 || color.a == 0 {
@@ -140,8 +227,17 @@ pub fn fill_rrect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rrect: RRec
     let top_corner_limit = rect.y + ry;
     let bottom_corner_limit = rect.bottom() - ry;
 
+    let clamp_left = bounds.x.max(0.0);
+    let clamp_right = bounds.right().min(pix_w as f32);
+    let clip_x1 = (clamp_left.floor() as i32).clamp(0, pix_w);
+    let clip_x2 = (clamp_right.ceil() as i32).clamp(clip_x1, pix_w);
+
     for y in y_start..y_end {
         let y_f = y as f32 + 0.5;
+
+        if y_f < rect.y || y_f > rect.bottom() {
+            continue;
+        }
 
         let (x_min, x_max) = if y_f < top_corner_limit {
             let dy = top_corner_limit - y_f;
@@ -163,15 +259,37 @@ pub fn fill_rrect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rrect: RRec
             (rect.x, rect.right())
         };
 
-        let clamp_left = bounds.x.max(0.0);
-        let clamp_right = bounds.right().min(pix_w as f32);
+        if x_max <= x_min {
+            continue;
+        }
 
-        let final_x1 = (x_min.max(clamp_left).round() as i32).clamp(0, pix_w);
-        let final_x2 = (x_max.min(clamp_right).round() as i32).clamp(final_x1, pix_w);
+        let x_start = (x_min.floor() as i32).clamp(clip_x1, clip_x2);
+        let x_end = (x_max.ceil() as i32).clamp(x_start, clip_x2);
 
-        if final_x2 > final_x1 {
-            let row = pixmap.row_mut(y as u32);
-            let slice = &mut row[final_x1 as usize..final_x2 as usize];
+        let solid_start = (x_min.ceil() as i32).clamp(x_start, x_end);
+        let solid_end = (x_max.floor() as i32).clamp(x_start, x_end);
+
+        let row = pixmap.row_mut(y as u32);
+
+        if solid_start < solid_end {
+            // 1. Left subpixel anti-aliased edge
+            for x in x_start..solid_start {
+                let px = x as f32 + 0.5;
+                let cov = rrect_coverage(px, y_f, &rect, rx, ry);
+                if cov > 0.0 {
+                    if cov >= 1.0 && is_opaque {
+                        row[x as usize] = col565;
+                    } else {
+                        let eff_a = (cov * a as f32).round() as u8;
+                        if eff_a > 0 {
+                            row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                        }
+                    }
+                }
+            }
+
+            // 2. High-speed solid middle span
+            let slice = &mut row[solid_start as usize..solid_end as usize];
             if is_opaque {
                 fill_u16_slice(slice, col565);
             } else {
@@ -179,11 +297,42 @@ pub fn fill_rrect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rrect: RRec
                     *px = blend_rgb565(*px, col565, a);
                 }
             }
+
+            // 3. Right subpixel anti-aliased edge
+            for x in solid_end..x_end {
+                let px = x as f32 + 0.5;
+                let cov = rrect_coverage(px, y_f, &rect, rx, ry);
+                if cov > 0.0 {
+                    if cov >= 1.0 && is_opaque {
+                        row[x as usize] = col565;
+                    } else {
+                        let eff_a = (cov * a as f32).round() as u8;
+                        if eff_a > 0 {
+                            row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                        }
+                    }
+                }
+            }
+        } else {
+            for x in x_start..x_end {
+                let px = x as f32 + 0.5;
+                let cov = rrect_coverage(px, y_f, &rect, rx, ry);
+                if cov > 0.0 {
+                    if cov >= 1.0 && is_opaque {
+                        row[x as usize] = col565;
+                    } else {
+                        let eff_a = (cov * a as f32).round() as u8;
+                        if eff_a > 0 {
+                            row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-/// Draw a stroked rounded rectangle border.
+/// Draw a stroked rounded rectangle border with subpixel anti-aliasing.
 pub fn stroke_rrect(
     pixmap: &mut Pixmap565Mut<'_>,
     clip: Option<Rect>,
@@ -229,8 +378,17 @@ pub fn stroke_rrect(
     let outer_sq = outer_r * outer_r;
     let inner_sq = inner_radius * inner_radius;
 
+    let clamp_left = bounds.x.max(0.0);
+    let clamp_right = bounds.right().min(pix_w as f32);
+    let clip_x1 = (clamp_left.floor() as i32).clamp(0, pix_w);
+    let clip_x2 = (clamp_right.ceil() as i32).clamp(clip_x1, pix_w);
+
     for y in y_start..y_end {
         let y_f = y as f32 + 0.5;
+
+        if y_f < rect.y || y_f > rect.bottom() {
+            continue;
+        }
 
         // Outer span
         let mut out_x1 = rect.x;
@@ -238,14 +396,24 @@ pub fn stroke_rrect(
 
         if y_f < rect.y + outer_r {
             let dy = rect.y + outer_r - y_f;
-            let dx = (outer_sq - dy * dy).max(0.0).sqrt();
-            out_x1 = rect.x + outer_r - dx;
-            out_x2 = rect.right() - outer_r + dx;
+            if dy < outer_r {
+                let dx = (outer_sq - dy * dy).max(0.0).sqrt();
+                out_x1 = rect.x + outer_r - dx;
+                out_x2 = rect.right() - outer_r + dx;
+            } else {
+                out_x1 = rect.x + outer_r;
+                out_x2 = rect.right() - outer_r;
+            }
         } else if y_f > rect.bottom() - outer_r {
             let dy = y_f - (rect.bottom() - outer_r);
-            let dx = (outer_sq - dy * dy).max(0.0).sqrt();
-            out_x1 = rect.x + outer_r - dx;
-            out_x2 = rect.right() - outer_r + dx;
+            if dy < outer_r {
+                let dx = (outer_sq - dy * dy).max(0.0).sqrt();
+                out_x1 = rect.x + outer_r - dx;
+                out_x2 = rect.right() - outer_r + dx;
+            } else {
+                out_x1 = rect.x + outer_r;
+                out_x2 = rect.right() - outer_r;
+            }
         }
 
         // Inner span (if inside inner rect bounds)
@@ -256,66 +424,134 @@ pub fn stroke_rrect(
             if inner_radius > 0.0 {
                 if y_f < inner_rect.y + inner_radius {
                     let dy = inner_rect.y + inner_radius - y_f;
-                    let dx = (inner_sq - dy * dy).max(0.0).sqrt();
-                    in_x1 = inner_rect.x + inner_radius - dx;
-                    in_x2 = inner_rect.right() - inner_radius + dx;
+                    if dy < inner_radius {
+                        let dx = (inner_sq - dy * dy).max(0.0).sqrt();
+                        in_x1 = inner_rect.x + inner_radius - dx;
+                        in_x2 = inner_rect.right() - inner_radius + dx;
+                    } else {
+                        in_x1 = inner_rect.x + inner_radius;
+                        in_x2 = inner_rect.right() - inner_radius;
+                    }
                 } else if y_f > inner_rect.bottom() - inner_radius {
                     let dy = y_f - (inner_rect.bottom() - inner_radius);
-                    let dx = (inner_sq - dy * dy).max(0.0).sqrt();
-                    in_x1 = inner_rect.x + inner_radius - dx;
-                    in_x2 = inner_rect.right() - inner_radius + dx;
+                    if dy < inner_radius {
+                        let dx = (inner_sq - dy * dy).max(0.0).sqrt();
+                        in_x1 = inner_rect.x + inner_radius - dx;
+                        in_x2 = inner_rect.right() - inner_radius + dx;
+                    } else {
+                        in_x1 = inner_rect.x + inner_radius;
+                        in_x2 = inner_rect.right() - inner_radius;
+                    }
                 }
             }
-            Some((in_x1, in_x2))
+            if in_x2 > in_x1 {
+                Some((in_x1, in_x2))
+            } else {
+                None
+            }
         } else {
             None
         };
-
-        let clamp_left = bounds.x.max(0.0);
-        let clamp_right = bounds.right().min(pix_w as f32);
 
         let row = pixmap.row_mut(y as u32);
 
         match in_span {
             Some((in_x1, in_x2)) => {
-                // Draw left segment [out_x1 .. in_x1]
-                let lx1 = (out_x1.max(clamp_left).round() as i32).clamp(0, pix_w);
-                let lx2 = (in_x1.min(clamp_right).round() as i32).clamp(lx1, pix_w);
-                if lx2 > lx1 {
-                    let slice = &mut row[lx1 as usize..lx2 as usize];
-                    if is_opaque {
-                        fill_u16_slice(slice, col565);
-                    } else {
-                        for px in slice.iter_mut() {
-                            *px = blend_rgb565(*px, col565, a);
+                // Left stroke segment [out_x1 .. in_x1]
+                let lx1 = (out_x1.floor() as i32).clamp(clip_x1, clip_x2);
+                let lx2 = (in_x1.ceil() as i32).clamp(lx1, clip_x2);
+                for x in lx1..lx2 {
+                    let px = x as f32 + 0.5;
+                    let cov = stroke_rrect_coverage(px, y_f, &rect, outer_r, &inner_rect, inner_radius);
+                    if cov > 0.0 {
+                        if cov >= 1.0 && is_opaque {
+                            row[x as usize] = col565;
+                        } else {
+                            let eff_a = (cov * a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                            }
                         }
                     }
                 }
-                // Draw right segment [in_x2 .. out_x2]
-                let rx1 = (in_x2.max(clamp_left).round() as i32).clamp(0, pix_w);
-                let rx2 = (out_x2.min(clamp_right).round() as i32).clamp(rx1, pix_w);
-                if rx2 > rx1 {
-                    let slice = &mut row[rx1 as usize..rx2 as usize];
-                    if is_opaque {
-                        fill_u16_slice(slice, col565);
-                    } else {
-                        for px in slice.iter_mut() {
-                            *px = blend_rgb565(*px, col565, a);
+
+                // Right stroke segment [in_x2 .. out_x2]
+                let rx1 = (in_x2.floor() as i32).clamp(clip_x1, clip_x2);
+                let rx2 = (out_x2.ceil() as i32).clamp(rx1, clip_x2);
+                for x in rx1..rx2 {
+                    let px = x as f32 + 0.5;
+                    let cov = stroke_rrect_coverage(px, y_f, &rect, outer_r, &inner_rect, inner_radius);
+                    if cov > 0.0 {
+                        if cov >= 1.0 && is_opaque {
+                            row[x as usize] = col565;
+                        } else {
+                            let eff_a = (cov * a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                            }
                         }
                     }
                 }
             }
             None => {
-                // Entire row is solid border
-                let x1 = (out_x1.max(clamp_left).round() as i32).clamp(0, pix_w);
-                let x2 = (out_x2.min(clamp_right).round() as i32).clamp(x1, pix_w);
-                if x2 > x1 {
-                    let slice = &mut row[x1 as usize..x2 as usize];
+                // Entire row is solid border band (top or bottom cap)
+                let x_start = (out_x1.floor() as i32).clamp(clip_x1, clip_x2);
+                let x_end = (out_x2.ceil() as i32).clamp(x_start, clip_x2);
+                let solid_start = (out_x1.ceil() as i32).clamp(x_start, x_end);
+                let solid_end = (out_x2.floor() as i32).clamp(x_start, x_end);
+
+                if solid_start < solid_end {
+                    for x in x_start..solid_start {
+                        let px = x as f32 + 0.5;
+                        let cov = rrect_coverage(px, y_f, &rect, outer_r, outer_r);
+                        if cov > 0.0 {
+                            if cov >= 1.0 && is_opaque {
+                                row[x as usize] = col565;
+                            } else {
+                                let eff_a = (cov * a as f32).round() as u8;
+                                if eff_a > 0 {
+                                    row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                                }
+                            }
+                        }
+                    }
+
+                    let slice = &mut row[solid_start as usize..solid_end as usize];
                     if is_opaque {
                         fill_u16_slice(slice, col565);
                     } else {
                         for px in slice.iter_mut() {
                             *px = blend_rgb565(*px, col565, a);
+                        }
+                    }
+
+                    for x in solid_end..x_end {
+                        let px = x as f32 + 0.5;
+                        let cov = rrect_coverage(px, y_f, &rect, outer_r, outer_r);
+                        if cov > 0.0 {
+                            if cov >= 1.0 && is_opaque {
+                                row[x as usize] = col565;
+                            } else {
+                                let eff_a = (cov * a as f32).round() as u8;
+                                if eff_a > 0 {
+                                    row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for x in x_start..x_end {
+                        let px = x as f32 + 0.5;
+                        let cov = rrect_coverage(px, y_f, &rect, outer_r, outer_r);
+                        if cov > 0.0 {
+                            if cov >= 1.0 && is_opaque {
+                                row[x as usize] = col565;
+                            } else {
+                                let eff_a = (cov * a as f32).round() as u8;
+                                if eff_a > 0 {
+                                    row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                                }
+                            }
                         }
                     }
                 }
@@ -353,7 +589,6 @@ pub fn fill_circle(
     let pix_h = pixmap.height as i32;
     let col565 = color.to_rgb565();
     let is_opaque = color.a == 255;
-    let a = color.a;
 
     let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
     let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
@@ -373,10 +608,10 @@ pub fn fill_circle(
             let row = pixmap.row_mut(y as u32);
             let slice = &mut row[x1 as usize..x2 as usize];
             if is_opaque {
-                slice.fill(col565);
+                fill_u16_slice(slice, col565);
             } else {
                 for px in slice.iter_mut() {
-                    *px = blend_rgb565(*px, col565, a);
+                    *px = blend_rgb565(*px, col565, color.a);
                 }
             }
         }
