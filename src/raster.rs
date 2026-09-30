@@ -579,29 +579,88 @@ pub fn fill_circle(
     let pix_h = pixmap.height as i32;
     let col565 = color.to_rgb565();
     let is_opaque = color.a == 255;
+    let a = color.a;
 
-    let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
-    let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
-    let r_sq = radius * radius;
+    let clip_x1 = (bounds.x.round() as i32).clamp(0, pix_w);
+    let clip_x2 = (bounds.right().round() as i32).clamp(clip_x1, pix_w);
+    let y_start = (bounds.y.round() as i32).clamp(0, pix_h);
+    let y_end = (bounds.bottom().round() as i32).clamp(y_start, pix_h);
+
+    if clip_x2 <= clip_x1 || y_end <= y_start {
+        return;
+    }
+
+    let r_outer = radius + 0.5;
+    let r_solid = (radius - 0.5).max(0.0);
+    let r_outer_sq = r_outer * r_outer;
+    let r_solid_sq = r_solid * r_solid;
 
     for y in y_start..y_end {
-        let dy = (y as f32 + 0.5) - center.y;
-        let dx_sq = r_sq - dy * dy;
-        if dx_sq < 0.0 {
+        let y_f = y as f32 + 0.5;
+        let dy = (y_f - center.y).abs();
+        if dy >= r_outer {
             continue;
         }
-        let dx = dx_sq.sqrt();
-        let x1 = ((center.x - dx).max(bounds.x).round() as i32).clamp(0, pix_w);
-        let x2 = ((center.x + dx).min(bounds.right()).round() as i32).clamp(x1, pix_w);
 
-        if x2 > x1 {
-            let row = pixmap.row_mut(y as u32);
-            let slice = &mut row[x1 as usize..x2 as usize];
+        let dx_outer = (r_outer_sq - dy * dy).max(0.0).sqrt();
+        let x_min = center.x - dx_outer;
+        let x_max = center.x + dx_outer;
+
+        let (x_solid_min, x_solid_max) = if dy < r_solid {
+            let dx_solid = (r_solid_sq - dy * dy).max(0.0).sqrt();
+            (center.x - dx_solid, center.x + dx_solid)
+        } else {
+            (center.x + 1.0, center.x - 1.0)
+        };
+
+        let x_start = (x_min.floor() as i32).clamp(clip_x1, clip_x2);
+        let x_end = (x_max.ceil() as i32).clamp(x_start, clip_x2);
+
+        let solid_start = (x_solid_min.ceil() as i32).clamp(x_start, x_end);
+        let solid_end = (x_solid_max.floor() as i32).clamp(x_start, x_end);
+
+        let row = pixmap.row_mut(y as u32);
+
+        if solid_start < solid_end {
+            for x in x_start..solid_start {
+                let px = x as f32 + 0.5;
+                let cov = circle_coverage(px, y_f, center, radius);
+                if cov > 0.0 {
+                    let eff_a = (cov * a as f32).round() as u8;
+                    if eff_a > 0 {
+                        row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                    }
+                }
+            }
+
+            let slice = &mut row[solid_start as usize..solid_end as usize];
             if is_opaque {
                 fill_u16_slice(slice, col565);
             } else {
                 for px in slice.iter_mut() {
-                    *px = blend_rgb565(*px, col565, color.a);
+                    *px = blend_rgb565(*px, col565, a);
+                }
+            }
+
+            for x in solid_end..x_end {
+                let px = x as f32 + 0.5;
+                let cov = circle_coverage(px, y_f, center, radius);
+                if cov > 0.0 {
+                    let eff_a = (cov * a as f32).round() as u8;
+                    if eff_a > 0 {
+                        row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                    }
+                }
+            }
+        } else {
+            for x in x_start..x_end {
+                let px = x as f32 + 0.5;
+                let cov = circle_coverage(px, y_f, center, radius);
+                if cov > 0.0 {
+                    let eff_a = (cov * a as f32).round() as u8;
+                    if eff_a > 0 {
+                        row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                    }
                 }
             }
         }
@@ -992,8 +1051,14 @@ pub fn fill_convex_quad(
     let pix_w = pixmap.width as i32;
     let pix_h = pixmap.height as i32;
 
-    let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
-    let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
+    let clip_x1 = (bounds.x.round() as i32).clamp(0, pix_w);
+    let clip_x2 = (bounds.right().round() as i32).clamp(clip_x1, pix_w);
+    let y_start = (bounds.y.round() as i32).clamp(0, pix_h);
+    let y_end = (bounds.bottom().round() as i32).clamp(y_start, pix_h);
+
+    if clip_x2 <= clip_x1 || y_end <= y_start {
+        return;
+    }
 
     let edges = [(q0, q1), (q1, q2), (q2, q3), (q3, q0)];
 
@@ -1023,37 +1088,126 @@ pub fn fill_convex_quad(
                 x_max = x_max.max(x_inters[i]);
             }
 
-            let x1 = (x_min.max(bounds.x).round() as i32).clamp(0, pix_w);
-            let x2 = (x_max.min(bounds.right()).round() as i32).clamp(x1, pix_w);
+            if x_max <= x_min {
+                continue;
+            }
 
-            if x2 > x1 {
-                let row = pixmap.row_mut(y as u32);
-                match &paint.shader {
-                    Shader::Linear(grad) => {
-                        for px in x1..x2 {
-                            let col = grad.color_at(px as f32, y_f);
+            let left_pixel = x_min.floor() as i32;
+            let solid_start = x_min.ceil() as i32;
+            let solid_end = x_max.floor() as i32;
+            let right_pixel = x_max.floor() as i32;
+
+            let row = pixmap.row_mut(y as u32);
+
+            match &paint.shader {
+                Shader::Linear(grad) => {
+                    if solid_start < solid_end {
+                        // Left subpixel anti-aliased edge
+                        if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
+                            let cov = 1.0 - (x_min - left_pixel as f32);
+                            let col = grad.color_at(left_pixel as f32 + 0.5, y_f);
+                            let eff_a = (cov * col.a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[left_pixel as usize] = blend_rgb565(row[left_pixel as usize], col.to_rgb565(), eff_a);
+                            }
+                        }
+
+                        // Solid middle
+                        let s_start = solid_start.clamp(clip_x1, clip_x2) as usize;
+                        let s_end = solid_end.clamp(clip_x1, clip_x2) as usize;
+                        for px in s_start..s_end {
+                            let col = grad.color_at(px as f32 + 0.5, y_f);
                             let col565 = col.to_rgb565();
                             if col.a == 255 {
-                                row[px as usize] = col565;
+                                row[px] = col565;
                             } else if col.a > 0 {
-                                row[px as usize] = blend_rgb565(row[px as usize], col565, col.a);
+                                row[px] = blend_rgb565(row[px], col565, col.a);
+                            }
+                        }
+
+                        // Right subpixel anti-aliased edge
+                        if right_pixel >= clip_x1 && right_pixel < clip_x2 && right_pixel >= solid_end {
+                            let cov = x_max - right_pixel as f32;
+                            let col = grad.color_at(right_pixel as f32 + 0.5, y_f);
+                            let eff_a = (cov * col.a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[right_pixel as usize] = blend_rgb565(row[right_pixel as usize], col.to_rgb565(), eff_a);
+                            }
+                        }
+                    } else {
+                        let start = left_pixel.clamp(clip_x1, clip_x2);
+                        let end = (x_max.ceil() as i32).clamp(start, clip_x2);
+                        for px in start..end {
+                            let p_left = px as f32;
+                            let p_right = p_left + 1.0;
+                            let span_l = p_left.max(x_min);
+                            let span_r = p_right.min(x_max);
+                            let cov = (span_r - span_l).clamp(0.0, 1.0);
+                            if cov > 0.0 {
+                                let col = grad.color_at(px as f32 + 0.5, y_f);
+                                let eff_a = (cov * col.a as f32).round() as u8;
+                                if eff_a > 0 {
+                                    row[px as usize] = blend_rgb565(row[px as usize], col.to_rgb565(), eff_a);
+                                }
                             }
                         }
                     }
-                    Shader::SolidColor(color) => {
-                        let col565 = color.to_rgb565();
-                        let a = color.a;
-                        let slice = &mut row[x1 as usize..x2 as usize];
-                        if a == 255 {
-                            slice.fill(col565);
-                        } else if a > 0 {
-                            for px in slice.iter_mut() {
-                                *px = blend_rgb565(*px, col565, a);
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                Shader::SolidColor(color) => {
+                    let col565 = color.to_rgb565();
+                    let a = color.a;
+
+                    if solid_start < solid_end {
+                        // Left subpixel anti-aliased edge
+                        if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
+                            let cov = 1.0 - (x_min - left_pixel as f32);
+                            let eff_a = (cov * a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[left_pixel as usize] = blend_rgb565(row[left_pixel as usize], col565, eff_a);
+                            }
+                        }
+
+                        // Solid middle
+                        let s_start = solid_start.clamp(clip_x1, clip_x2) as usize;
+                        let s_end = solid_end.clamp(clip_x1, clip_x2) as usize;
+                        if s_end > s_start {
+                            let slice = &mut row[s_start..s_end];
+                            if a == 255 {
+                                fill_u16_slice(slice, col565);
+                            } else {
+                                for px in slice.iter_mut() {
+                                    *px = blend_rgb565(*px, col565, a);
+                                }
+                            }
+                        }
+
+                        // Right subpixel anti-aliased edge
+                        if right_pixel >= clip_x1 && right_pixel < clip_x2 && right_pixel >= solid_end {
+                            let cov = x_max - right_pixel as f32;
+                            let eff_a = (cov * a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[right_pixel as usize] = blend_rgb565(row[right_pixel as usize], col565, eff_a);
+                            }
+                        }
+                    } else {
+                        let start = left_pixel.clamp(clip_x1, clip_x2);
+                        let end = (x_max.ceil() as i32).clamp(start, clip_x2);
+                        for px in start..end {
+                            let p_left = px as f32;
+                            let p_right = p_left + 1.0;
+                            let span_l = p_left.max(x_min);
+                            let span_r = p_right.min(x_max);
+                            let cov = (span_r - span_l).clamp(0.0, 1.0);
+                            if cov > 0.0 {
+                                let eff_a = (cov * a as f32).round() as u8;
+                                if eff_a > 0 {
+                                    row[px as usize] = blend_rgb565(row[px as usize], col565, eff_a);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }

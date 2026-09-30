@@ -164,5 +164,17 @@ mod tests {
             ..Default::default()
         };
         canvas.stroke_path(&path, &paint, &stroke);
+
+        // Verify that anti-aliased transition pixels exist along the stroke
+        let red565 = Color::RED.to_rgb565();
+        let aa_pixels = pixmap
+            .data()
+            .iter()
+            .filter(|&&px| px > 0 && px < red565)
+            .count();
+        assert!(
+            aa_pixels > 0,
+            "expected anti-aliased pixels along the stroked path, got {aa_pixels}"
+        );
     }
 }
