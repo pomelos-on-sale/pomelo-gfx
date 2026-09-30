@@ -177,4 +177,53 @@ mod tests {
             "expected anti-aliased pixels along the stroked path, got {aa_pixels}"
         );
     }
+
+    #[test]
+    fn test_horizontal_and_vertical_stroke_aa() {
+        let red565 = Color::RED.to_rgb565();
+        let stroke = Stroke {
+            width: 4.0,
+            line_cap: LineCap::Round,
+            ..Default::default()
+        };
+        let paint = Paint::new(Color::RED);
+
+        // 1. Horizontal stroke: top and bottom edges must have anti-aliased pixels across the span
+        let mut pixmap_h = Pixmap565::new(100, 50).unwrap();
+        let mut canvas_h = Canvas::new(pixmap_h.as_mut());
+        let mut pb_h = PathBuilder::new();
+        pb_h.move_to(20.0, 25.3);
+        pb_h.line_to(80.0, 25.3);
+        let path_h = pb_h.finish().unwrap();
+        canvas_h.stroke_path(&path_h, &paint, &stroke);
+
+        let aa_h = pixmap_h
+            .data()
+            .iter()
+            .filter(|&&px| px > 0 && px < red565)
+            .count();
+        assert!(
+            aa_h >= 100,
+            "expected at least 100 anti-aliased pixels along the horizontal stroke edges, got {aa_h}"
+        );
+
+        // 2. Vertical stroke: left and right edges must have anti-aliased pixels across the span
+        let mut pixmap_v = Pixmap565::new(50, 100).unwrap();
+        let mut canvas_v = Canvas::new(pixmap_v.as_mut());
+        let mut pb_v = PathBuilder::new();
+        pb_v.move_to(25.3, 20.0);
+        pb_v.line_to(25.3, 80.0);
+        let path_v = pb_v.finish().unwrap();
+        canvas_v.stroke_path(&path_v, &paint, &stroke);
+
+        let aa_v = pixmap_v
+            .data()
+            .iter()
+            .filter(|&&px| px > 0 && px < red565)
+            .count();
+        assert!(
+            aa_v >= 100,
+            "expected at least 100 anti-aliased pixels along the vertical stroke edges, got {aa_v}"
+        );
+    }
 }
