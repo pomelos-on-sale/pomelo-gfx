@@ -31,7 +31,7 @@ Two crates in Pomelo OS draw through it:
 
 * `iced-pomelo-gfx` — iced's renderer contract, over this rasteriser: the same position in the
   stack as `iced_tiny_skia`
-* `pomelo-iced-host` — the platform layer that runs [iced](https://github.com/iced-rs/iced) on
+* `iced-pomelo-winit` — the platform layer that runs [iced](https://github.com/iced-rs/iced) on
   this panel (for the frame buffer itself)
 
 **No antialiasing for paths yet**: filled rects, rounded rects and paths are hard-edged.
