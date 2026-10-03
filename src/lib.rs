@@ -8,7 +8,8 @@ pub mod raster;
 
 pub use canvas::Canvas;
 pub use color::{
-    blend_rgb565, blend_rgb888_onto_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color, ColorU8,
+    blend_rgb565, blend_rgb888_onto_rgb565, dither_float_to_rgb565, dither_rgb888_to_rgb565,
+    rgb565_to_rgb888, rgb888_to_rgb565, Color, ColorU8, BAYER8, DITHER_OFFSETS,
 };
 pub use geometry::{Point, RRect, Radius, Rect, Size, Transform};
 pub use paint::{
@@ -19,7 +20,10 @@ pub use pixmap::{Pixmap, Pixmap565, Pixmap565Mut, PixmapMut};
 
 pub mod prelude {
     pub use crate::canvas::Canvas;
-    pub use crate::color::{blend_rgb565, rgb565_to_rgb888, rgb888_to_rgb565, Color};
+    pub use crate::color::{
+        blend_rgb565, dither_float_to_rgb565, dither_rgb888_to_rgb565, rgb565_to_rgb888,
+        rgb888_to_rgb565, Color, BAYER8, DITHER_OFFSETS,
+    };
     pub use crate::geometry::{Point, RRect, Radius, Rect, Size, Transform};
     pub use crate::paint::{
         FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Shader, SpreadMode,
@@ -299,5 +303,67 @@ mod tests {
 
         let c_inf = grad.color_at(f32::INFINITY, 0.0);
         assert_eq!(c_inf, Color::RED);
+    }
+
+    #[test]
+    fn test_bayer_dithering() {
+        // 1. Verify matrix has all 64 values 0..=63
+        let mut seen = [false; 64];
+        for &val in BAYER8.iter() {
+            assert!((val as usize) < 64);
+            assert!(!seen[val as usize]);
+            seen[val as usize] = true;
+        }
+
+        // 2. Uniform exact multiple (e.g. 16, 32, 48) has zero noise
+        let exact_rgb = rgb888_to_rgb565(16, 32, 48);
+        for y in 0..8 {
+            for x in 0..8 {
+                let d = dither_rgb888_to_rgb565(16, 32, 48, x, y);
+                assert_eq!(d, exact_rgb);
+            }
+        }
+
+        // 3. Fraction rounding: r=17 (16 + 1/8). Exactly 8 out of 64 pixels should round up.
+        let mut count_up = 0;
+        for y in 0..8 {
+            for x in 0..8 {
+                let d = dither_rgb888_to_rgb565(17, 32, 48, x, y);
+                let r5 = (d >> 11) & 0x1F;
+                if r5 == 3 {
+                    count_up += 1;
+                } else {
+                    assert_eq!(r5, 2);
+                }
+            }
+        }
+        assert_eq!(count_up, 8); // 8 / 64 = 1/8
+
+        // 4. Pure black (0) and pure white (255)
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(dither_rgb888_to_rgb565(0, 0, 0, x, y), 0x0000);
+                assert_eq!(dither_rgb888_to_rgb565(255, 255, 255, x, y), 0xFFFF);
+            }
+        }
+
+        // 5. Negative coordinates wrap properly and do not panic
+        let d_neg = dither_rgb888_to_rgb565(100, 100, 100, -1, -5);
+        let d_pos = dither_rgb888_to_rgb565(100, 100, 100, 7, 3);
+        assert_eq!(d_neg, d_pos);
+
+        // 6. Continuous float dithering: fractional step of 1/64 produces exactly 1 pixel round up
+        let mut count_float_1 = 0;
+        for y in 0..8 {
+            for x in 0..8 {
+                // r = 16.0 + 0.125 (0.125 is 1/64th of 8.0, so exactly 1 quantum step in 64-level Bayer)
+                let d = dither_float_to_rgb565(16.0 + 0.125, 32.0, 48.0, x, y);
+                let r5 = (d >> 11) & 0x1F;
+                if r5 == 3 {
+                    count_float_1 += 1;
+                }
+            }
+        }
+        assert_eq!(count_float_1, 1);
     }
 }

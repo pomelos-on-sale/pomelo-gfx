@@ -94,19 +94,22 @@ impl LinearGradient {
         }
     }
 
-    /// Sample the color of the gradient at (x, y) coordinates.
-    pub fn color_at(&self, x: f32, y: f32) -> Color {
+    /// Evaluates the continuous floating-point RGBA (0.0..=255.0) at (x, y).
+    #[inline(always)]
+    pub fn eval_at(&self, x: f32, y: f32) -> (f32, f32, f32, f32) {
         let p = self.transform.map_point(Point::new(x, y));
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
         let len_sq = dx * dx + dy * dy;
         if len_sq <= 1e-6 {
-            return self.stops[0].color;
+            let c = self.stops[0].color;
+            return (c.r as f32, c.g as f32, c.b as f32, c.a as f32);
         }
 
         let mut t = ((p.x - self.start.x) * dx + (p.y - self.start.y) * dy) / len_sq;
         if t.is_nan() || t.is_infinite() {
-            return self.stops[0].color;
+            let c = self.stops[0].color;
+            return (c.r as f32, c.g as f32, c.b as f32, c.a as f32);
         }
 
         t = match self.spread {
@@ -123,11 +126,13 @@ impl LinearGradient {
         };
 
         if t <= self.stops[0].position {
-            return self.stops[0].color;
+            let c = self.stops[0].color;
+            return (c.r as f32, c.g as f32, c.b as f32, c.a as f32);
         }
         let last = self.stops.len() - 1;
         if t >= self.stops[last].position {
-            return self.stops[last].color;
+            let c = self.stops[last].color;
+            return (c.r as f32, c.g as f32, c.b as f32, c.a as f32);
         }
 
         for i in 0..last {
@@ -141,16 +146,39 @@ impl LinearGradient {
                     0.0
                 };
                 let inv = 1.0 - factor;
-                return Color {
-                    r: (s0.color.r as f32 * inv + s1.color.r as f32 * factor + 0.5) as u8,
-                    g: (s0.color.g as f32 * inv + s1.color.g as f32 * factor + 0.5) as u8,
-                    b: (s0.color.b as f32 * inv + s1.color.b as f32 * factor + 0.5) as u8,
-                    a: (s0.color.a as f32 * inv + s1.color.a as f32 * factor + 0.5) as u8,
-                };
+                return (
+                    s0.color.r as f32 * inv + s1.color.r as f32 * factor,
+                    s0.color.g as f32 * inv + s1.color.g as f32 * factor,
+                    s0.color.b as f32 * inv + s1.color.b as f32 * factor,
+                    s0.color.a as f32 * inv + s1.color.a as f32 * factor,
+                );
             }
         }
 
-        self.stops[0].color
+        let c = self.stops[0].color;
+        (c.r as f32, c.g as f32, c.b as f32, c.a as f32)
+    }
+
+    /// Sample the color of the gradient at (x, y) coordinates.
+    pub fn color_at(&self, x: f32, y: f32) -> Color {
+        let (r, g, b, a) = self.eval_at(x, y);
+        Color {
+            r: (r.clamp(0.0, 255.0) + 0.5) as u8,
+            g: (g.clamp(0.0, 255.0) + 0.5) as u8,
+            b: (b.clamp(0.0, 255.0) + 0.5) as u8,
+            a: (a.clamp(0.0, 255.0) + 0.5) as u8,
+        }
+    }
+
+    /// Sample the gradient at (x, y) coordinates with Bayer 8x8 dithering directly from
+    /// continuous floating-point color, preventing 8-bit intermediate quantization banding.
+    ///
+    /// Returns `(rgb565, alpha)`.
+    #[inline(always)]
+    pub fn dithered_at(&self, x: f32, y: f32, px: i32, py: i32) -> (u16, u8) {
+        let (r, g, b, a) = self.eval_at(x, y);
+        let col565 = crate::color::dither_float_to_rgb565(r, g, b, px, py);
+        (col565, (a.clamp(0.0, 255.0) + 0.5) as u8)
     }
 }
 

@@ -74,6 +74,12 @@ impl Color {
         rgb888_to_rgb565(self.r, self.g, self.b)
     }
 
+    /// Converts this color to 16-bit RGB565 with Bayer 8x8 ordered dithering at coordinate `(x, y)`.
+    #[inline(always)]
+    pub fn dither_to_rgb565(&self, x: i32, y: i32) -> u16 {
+        dither_rgb888_to_rgb565(self.r, self.g, self.b, x, y)
+    }
+
     #[inline(always)]
     pub fn is_opaque(&self) -> bool {
         self.a == 255
@@ -83,6 +89,58 @@ impl Color {
     pub fn is_transparent(&self) -> bool {
         self.a == 0
     }
+}
+
+/// The classic Bayer 8x8 ordered-dither matrix: the raw thresholds, each of
+/// 0..=63 appearing exactly once.
+pub static BAYER8: [u8; 64] = [
+    0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38,
+    60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57,
+    25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
+];
+
+/// Precomputed continuous Bayer 8x8 dither offsets: `(63.5 - BAYER8[i]) / 64.0`.
+pub static DITHER_OFFSETS: [f32; 64] = [
+    0.9921875, 0.4921875, 0.8671875, 0.3671875, 0.9609375, 0.4609375, 0.8359375, 0.3359375,
+    0.2421875, 0.7421875, 0.1171875, 0.6171875, 0.2109375, 0.7109375, 0.0859375, 0.5859375,
+    0.8046875, 0.3046875, 0.9296875, 0.4296875, 0.7734375, 0.2734375, 0.8984375, 0.3984375,
+    0.0546875, 0.5546875, 0.1796875, 0.6796875, 0.0234375, 0.5234375, 0.1484375, 0.6484375,
+    0.9453125, 0.4453125, 0.8203125, 0.3203125, 0.9765625, 0.4765625, 0.8515625, 0.3515625,
+    0.1953125, 0.6953125, 0.0703125, 0.5703125, 0.2265625, 0.7265625, 0.1015625, 0.6015625,
+    0.7578125, 0.2578125, 0.8828125, 0.3828125, 0.7890625, 0.2890625, 0.9140625, 0.4140625,
+    0.0078125, 0.5078125, 0.1328125, 0.6328125, 0.0390625, 0.5390625, 0.1640625, 0.6640625,
+];
+
+/// Convert continuous floating-point RGB (0.0..=255.0) to 16-bit RGB565 with Bayer 8x8 ordered dithering.
+///
+/// This eliminates color banding by using 64 continuous threshold levels directly from
+/// floating-point color, preventing intermediate 8-bit integer quantization banding.
+/// Subpixel chromatic phase decorrelation is applied across R, G, and B to disperse
+/// luminance variance.
+#[inline(always)]
+pub fn dither_float_to_rgb565(r: f32, g: f32, b: f32, x: i32, y: i32) -> u16 {
+    let idx_r = (((y & 7) << 3) | (x & 7)) as usize;
+    let idx_g = ((((y + 4) & 7) << 3) | ((x + 2) & 7)) as usize;
+    let idx_b = ((((y + 2) & 7) << 3) | ((x + 4) & 7)) as usize;
+
+    let d_r = DITHER_OFFSETS[idx_r];
+    let d_g = DITHER_OFFSETS[idx_g];
+    let d_b = DITHER_OFFSETS[idx_b];
+
+    let r5 = ((r.max(0.0) * 0.125 + d_r) as u32).min(31) as u16;
+    let g6 = ((g.max(0.0) * 0.250 + d_g) as u32).min(63) as u16;
+    let b5 = ((b.max(0.0) * 0.125 + d_b) as u32).min(31) as u16;
+
+    (r5 << 11) | (g6 << 5) | b5
+}
+
+/// Convert 8-bit RGB to 16-bit RGB565 with Bayer 8x8 ordered dithering.
+///
+/// This eliminates color banding artifacts on RGB565 displays when rendering gradients.
+/// The threshold lookup is indexed by `(x & 7, y & 7)`.
+#[inline(always)]
+pub fn dither_rgb888_to_rgb565(r: u8, g: u8, b: u8, x: i32, y: i32) -> u16 {
+    dither_float_to_rgb565(r as f32, g as f32, b as f32, x, y)
 }
 
 /// Convert 8-bit RGB to 16-bit RGB565.

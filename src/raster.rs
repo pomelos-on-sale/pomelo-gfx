@@ -1,4 +1,4 @@
-use crate::color::{blend_rgb565, rgb888_to_rgb565, Color};
+use crate::color::{blend_rgb565, dither_float_to_rgb565, Color};
 use crate::geometry::{Point, RRect, Rect};
 use crate::paint::{LineCap, Paint, Shader, Stroke};
 use crate::pixmap::Pixmap565Mut;
@@ -1214,12 +1214,12 @@ pub fn stroke_polyline(
                             row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
                         }
                     } else if let Shader::Linear(grad) = &paint.shader {
-                        let col = grad.color_at(px, y_f);
-                        let eff_a = (cov * col.a as f32).round() as u8;
+                        let (col565, a) = grad.dithered_at(px, y_f, x, y);
+                        let eff_a = (cov * a as f32).round() as u8;
                         if eff_a == 255 {
-                            row[x as usize] = col.to_rgb565();
+                            row[x as usize] = col565;
                         } else if eff_a > 0 {
-                            row[x as usize] = blend_rgb565(row[x as usize], col.to_rgb565(), eff_a);
+                            row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
                         }
                     }
                 }
@@ -1314,10 +1314,10 @@ pub fn fill_convex_quad(
                         // Left subpixel anti-aliased edge
                         if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
                             let cov = 1.0 - (x_min - left_pixel as f32);
-                            let col = grad.color_at(left_pixel as f32 + 0.5, y_f);
-                            let eff_a = (cov * col.a as f32).round() as u8;
+                            let (col565, a) = grad.dithered_at(left_pixel as f32 + 0.5, y_f, left_pixel, y);
+                            let eff_a = (cov * a as f32).round() as u8;
                             if eff_a > 0 {
-                                row[left_pixel as usize] = blend_rgb565(row[left_pixel as usize], col.to_rgb565(), eff_a);
+                                row[left_pixel as usize] = blend_rgb565(row[left_pixel as usize], col565, eff_a);
                             }
                         }
 
@@ -1325,22 +1325,21 @@ pub fn fill_convex_quad(
                         let s_start = solid_start.clamp(clip_x1, clip_x2) as usize;
                         let s_end = solid_end.clamp(clip_x1, clip_x2) as usize;
                         for px in s_start..s_end {
-                            let col = grad.color_at(px as f32 + 0.5, y_f);
-                            let col565 = col.to_rgb565();
-                            if col.a == 255 {
+                            let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px as i32, y);
+                            if a == 255 {
                                 row[px] = col565;
-                            } else if col.a > 0 {
-                                row[px] = blend_rgb565(row[px], col565, col.a);
+                            } else if a > 0 {
+                                row[px] = blend_rgb565(row[px], col565, a);
                             }
                         }
 
                         // Right subpixel anti-aliased edge
                         if right_pixel >= clip_x1 && right_pixel < clip_x2 && right_pixel >= solid_end {
                             let cov = x_max - right_pixel as f32;
-                            let col = grad.color_at(right_pixel as f32 + 0.5, y_f);
-                            let eff_a = (cov * col.a as f32).round() as u8;
+                            let (col565, a) = grad.dithered_at(right_pixel as f32 + 0.5, y_f, right_pixel, y);
+                            let eff_a = (cov * a as f32).round() as u8;
                             if eff_a > 0 {
-                                row[right_pixel as usize] = blend_rgb565(row[right_pixel as usize], col.to_rgb565(), eff_a);
+                                row[right_pixel as usize] = blend_rgb565(row[right_pixel as usize], col565, eff_a);
                             }
                         }
                     } else {
@@ -1353,10 +1352,10 @@ pub fn fill_convex_quad(
                             let span_r = p_right.min(x_max);
                             let cov = (span_r - span_l).clamp(0.0, 1.0);
                             if cov > 0.0 {
-                                let col = grad.color_at(px as f32 + 0.5, y_f);
-                                let eff_a = (cov * col.a as f32).round() as u8;
+                                let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px, y);
+                                let eff_a = (cov * a as f32).round() as u8;
                                 if eff_a > 0 {
-                                    row[px as usize] = blend_rgb565(row[px as usize], col.to_rgb565(), eff_a);
+                                    row[px as usize] = blend_rgb565(row[px as usize], col565, eff_a);
                                 }
                             }
                         }
@@ -1448,16 +1447,6 @@ pub fn fill_dithered_horizontal_gradient(
     c0: (u8, u8, u8),
     c1: (u8, u8, u8),
 ) {
-    /// The classic Bayer 8x8 ordered-dither matrix: the raw thresholds, each of
-    /// 0..=63 appearing exactly once. Kept as integers so the pattern is readable
-    /// and so the compiler does not constant-fold a term like `32.0 / 64.0 - 0.5`
-    /// into `0.5 - 0.5` and trip `clippy::eq_op`.
-    static BAYER8: [u8; 64] = [
-        0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38,
-        60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57,
-        25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
-    ];
-
     let pix_w = pixmap.width as usize;
     let pix_h = pixmap.height as usize;
 
@@ -1480,18 +1469,13 @@ pub fn fill_dithered_horizontal_gradient(
     let (dr, dg, db) = (c1.0 as f32 - r0, c1.1 as f32 - g0, c1.2 as f32 - b0);
 
     for y in y1..y2 {
-        let by = (y & 7) << 3;
         let row = pixmap.row_mut(y as u32);
         for x in x1..x2 {
-            let bx = x & 7;
-            // The threshold centred on zero, scaled to a few steps of 8-bit colour,
-            // so the dither breaks up the banding a 565 gradient would show.
-            let d = (BAYER8[by + bx] as f32 / 64.0 - 0.5) * 6.0;
             let t = x as f32 * inv_w;
-            let r = (r0 + dr * t + d + 0.5).clamp(0.0, 255.0) as u8;
-            let g = (g0 + dg * t + d + 0.5).clamp(0.0, 255.0) as u8;
-            let b = (b0 + db * t + d + 0.5).clamp(0.0, 255.0) as u8;
-            row[x] = rgb888_to_rgb565(r, g, b);
+            let r = r0 + dr * t;
+            let g = g0 + dg * t;
+            let b = b0 + db * t;
+            row[x] = dither_float_to_rgb565(r, g, b, x as i32, y as i32);
         }
     }
 }
