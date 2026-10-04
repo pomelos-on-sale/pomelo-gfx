@@ -64,10 +64,10 @@ pub fn fill_rect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rect: Rect, 
     let pix_w = pixmap.width as i32;
     let pix_h = pixmap.height as i32;
 
-    let x1 = (bounds.x.round() as i32).clamp(0, pix_w);
-    let y1 = (bounds.y.round() as i32).clamp(0, pix_h);
-    let x2 = (bounds.right().round() as i32).clamp(x1, pix_w);
-    let y2 = (bounds.bottom().round() as i32).clamp(y1, pix_h);
+    let x1 = (bounds.x.floor() as i32).clamp(0, pix_w);
+    let y1 = (bounds.y.floor() as i32).clamp(0, pix_h);
+    let x2 = (bounds.right().ceil() as i32).clamp(x1, pix_w);
+    let y2 = (bounds.bottom().ceil() as i32).clamp(y1, pix_h);
 
     if x2 <= x1 || y2 <= y1 {
         return;
@@ -581,10 +581,10 @@ pub fn fill_circle(
     let is_opaque = color.a == 255;
     let a = color.a;
 
-    let clip_x1 = (bounds.x.round() as i32).clamp(0, pix_w);
-    let clip_x2 = (bounds.right().round() as i32).clamp(clip_x1, pix_w);
-    let y_start = (bounds.y.round() as i32).clamp(0, pix_h);
-    let y_end = (bounds.bottom().round() as i32).clamp(y_start, pix_h);
+    let clip_x1 = (bounds.x.floor() as i32).clamp(0, pix_w);
+    let clip_x2 = (bounds.right().ceil() as i32).clamp(clip_x1, pix_w);
+    let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
+    let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
 
     if clip_x2 <= clip_x1 || y_end <= y_start {
         return;
@@ -1076,10 +1076,10 @@ pub fn stroke_polyline(
     let pix_w = pixmap.width as i32;
     let pix_h = pixmap.height as i32;
 
-    let clip_x1 = (bounds.x.round() as i32).clamp(0, pix_w);
-    let clip_x2 = (bounds.right().round() as i32).clamp(clip_x1, pix_w);
-    let y_start = (bounds.y.round() as i32).clamp(0, pix_h);
-    let y_end = (bounds.bottom().round() as i32).clamp(y_start, pix_h);
+    let clip_x1 = (bounds.x.floor() as i32).clamp(0, pix_w);
+    let clip_x2 = (bounds.right().ceil() as i32).clamp(clip_x1, pix_w);
+    let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
+    let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
 
     if clip_x2 <= clip_x1 || y_end <= y_start {
         return;
@@ -1260,10 +1260,10 @@ pub fn fill_convex_quad(
     let pix_w = pixmap.width as i32;
     let pix_h = pixmap.height as i32;
 
-    let clip_x1 = (bounds.x.round() as i32).clamp(0, pix_w);
-    let clip_x2 = (bounds.right().round() as i32).clamp(clip_x1, pix_w);
-    let y_start = (bounds.y.round() as i32).clamp(0, pix_h);
-    let y_end = (bounds.bottom().round() as i32).clamp(y_start, pix_h);
+    let clip_x1 = (bounds.x.floor() as i32).clamp(0, pix_w);
+    let clip_x2 = (bounds.right().ceil() as i32).clamp(clip_x1, pix_w);
+    let y_start = (bounds.y.floor() as i32).clamp(0, pix_h);
+    let y_end = (bounds.bottom().ceil() as i32).clamp(y_start, pix_h);
 
     if clip_x2 <= clip_x1 || y_end <= y_start {
         return;
@@ -1452,10 +1452,10 @@ pub fn fill_dithered_horizontal_gradient(
 
     let (x1, y1, x2, y2) = match clip {
         Some(c) => (
-            (c.x.max(0.0).round() as usize).min(pix_w),
-            (c.y.max(0.0).round() as usize).min(pix_h),
-            (c.right().min(pix_w as f32).round() as usize).min(pix_w),
-            (c.bottom().min(pix_h as f32).round() as usize).min(pix_h),
+            (c.x.max(0.0).floor() as usize).min(pix_w),
+            (c.y.max(0.0).floor() as usize).min(pix_h),
+            (c.right().min(pix_w as f32).ceil() as usize).min(pix_w),
+            (c.bottom().min(pix_h as f32).ceil() as usize).min(pix_h),
         ),
         None => (0, 0, pix_w, pix_h),
     };
