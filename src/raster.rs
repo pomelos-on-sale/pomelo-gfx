@@ -801,55 +801,21 @@ pub fn blit_image_565_with_alpha(
         return;
     }
 
-    let half_w = w as f32 * 0.5;
-    let half_h = h as f32 * 0.5;
-    let corner_r = 0.225 * (w.min(h) as f32);
-    let inner_w = half_w - corner_r;
-    let inner_h = half_h - corner_r;
-
+    // The squircle mask and its anti-aliasing are fully baked into alpha_mask at
+    // build time (4× supersampled). This function only needs to alpha-blend pixels.
     for py in y1..y2 {
         let sy = (py - y) as usize;
         let row = pixmap.row_mut(py as u32);
-        let py_dist = (sy as f32 + 0.5 - half_h).abs();
-        let qy = (py_dist - inner_h).max(0.0);
 
         for px in x1..x2 {
             let sx = (px - x) as usize;
             let idx = sy * (w as usize) + sx;
-            let mut a = alpha_mask[idx];
+            let a = alpha_mask[idx];
             if a == 0 {
                 continue;
             }
 
-            // Authentic iOS squircle boundary check
-            let px_dist = (sx as f32 + 0.5 - half_w).abs();
-            let qx = (px_dist - inner_w).max(0.0);
-            let dist_from_corner = (qx * qx + qy * qy).sqrt();
-
-            if dist_from_corner > corner_r {
-                continue;
-            }
-            if dist_from_corner > corner_r - 1.25 {
-                let edge_factor = ((corner_r - dist_from_corner) / 1.25).clamp(0.0, 1.0);
-                a = ((a as f32) * edge_factor) as u8;
-                if a == 0 {
-                    continue;
-                }
-            }
-
             let src = rgb_pixels[idx];
-
-            // White fringe suppressor for hello and counter icons:
-            // Filter near-white halo pixels (R>200, G>200, B>200) within 3.0px of the outer edge
-            if dist_from_corner > corner_r - 3.0 {
-                let r5 = (src >> 11) & 0x1F;
-                let g6 = (src >> 5) & 0x3F;
-                let b5 = src & 0x1F;
-                if r5 >= 25 && g6 >= 50 && b5 >= 25 {
-                    continue;
-                }
-            }
-
             let dst = &mut row[px as usize];
             if a == 255 {
                 *dst = src;
@@ -903,14 +869,10 @@ pub fn blit_image_565_with_alpha_scaled(
         return;
     }
 
-    // Authentic iOS squircle mask parameters for dst_w x dst_h (corner radius ~0.225 size)
-    let half_w = dst_w as f32 * 0.5;
-    let half_h = dst_h as f32 * 0.5;
-    let corner_r = 0.225 * (dst_w.min(dst_h) as f32);
-    let inner_w = half_w - corner_r;
-    let inner_h = half_h - corner_r;
-
-    // Fixed-point 16.16 scale factors for fast coordinate mapping on ESP32-S3
+    // The squircle mask and its anti-aliasing are fully baked into alpha_mask at
+    // build time (4× supersampled). This function only needs to scale + alpha-blend.
+    //
+    // Fixed-point 16.16 scale factors for fast coordinate mapping on ESP32-S3.
     let scale_x = ((src_w as u64) << 16) / (dst_w as u64);
     let scale_y = ((src_h as u64) << 16) / (dst_h as u64);
 
@@ -920,48 +882,17 @@ pub fn blit_image_565_with_alpha_scaled(
         let row = pixmap.row_mut(py as u32);
         let src_row_offset = sy * (src_w as usize);
 
-        let py_dist = (dy as f32 + 0.5 - half_h).abs();
-        let qy = (py_dist - inner_h).max(0.0);
-
         for px in x1..x2 {
             let dx = (px - x) as usize;
             let sx = (((dx as u64 * scale_x) >> 16) as usize).min((src_w - 1) as usize);
             let idx = src_row_offset + sx;
 
-            let mut a = alpha_mask[idx];
+            let a = alpha_mask[idx];
             if a == 0 {
                 continue;
             }
 
-            // Compute exact squircle distance from corner center
-            let px_dist = (dx as f32 + 0.5 - half_w).abs();
-            let qx = (px_dist - inner_w).max(0.0);
-            let dist_from_corner = (qx * qx + qy * qy).sqrt();
-
-            if dist_from_corner > corner_r {
-                continue;
-            }
-            if dist_from_corner > corner_r - 1.25 {
-                let edge_factor = ((corner_r - dist_from_corner) / 1.25).clamp(0.0, 1.0);
-                a = ((a as f32) * edge_factor) as u8;
-                if a == 0 {
-                    continue;
-                }
-            }
-
             let src = rgb_pixels[idx];
-
-            // White fringe suppressor for hello and counter icons:
-            // Filter near-white halo pixels (R>200, G>200, B>200) within 3.0px of the outer edge
-            if dist_from_corner > corner_r - 3.0 {
-                let r5 = (src >> 11) & 0x1F;
-                let g6 = (src >> 5) & 0x3F;
-                let b5 = src & 0x1F;
-                if r5 >= 25 && g6 >= 50 && b5 >= 25 {
-                    continue;
-                }
-            }
-
             let dst = &mut row[px as usize];
             if a == 255 {
                 *dst = src;
