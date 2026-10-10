@@ -182,11 +182,27 @@ pub fn blend_rgb565(dst: u16, src: u16, alpha: u8) -> u16 {
     let g_s = (s >> 5) & 0x3F;
     let b_s = s & 0x1F;
 
-    let r = ((r_s * a + r_d * inv_a + 127) / 255) as u16;
-    let g = ((g_s * a + g_d * inv_a + 127) / 255) as u16;
-    let b = ((b_s * a + b_d * inv_a + 127) / 255) as u16;
+    let r = div255_round(r_s * a + r_d * inv_a) as u16;
+    let g = div255_round(g_s * a + g_d * inv_a) as u16;
+    let b = div255_round(b_s * a + b_d * inv_a) as u16;
 
     (r << 11) | (g << 5) | b
+}
+
+/// Exact rounded division by 255 for values in range [0, 65535]:
+/// `(val + 127) / 255 == (val + 128 + ((val + 128) >> 8)) >> 8`.
+#[inline(always)]
+pub fn div255_round(val: u32) -> u32 {
+    let t = val + 128;
+    (t + (t >> 8)) >> 8
+}
+
+/// Fast division by 255 for normalized products:
+/// `val / 255 == (val + 1 + (val >> 8)) >> 8`.
+#[inline(always)]
+pub fn div255_fast(val: u32) -> u32 {
+    let t = val + 1;
+    (t + (t >> 8)) >> 8
 }
 
 /// Blend an RGB888 color with alpha onto an RGB565 destination pixel.
@@ -210,9 +226,9 @@ pub fn blend_rgb888_onto_rgb565(dst: u16, r: u8, g: u8, b: u8, alpha: u8) -> u16
     let g_s = (g as u32) >> 2;
     let b_s = (b as u32) >> 3;
 
-    let r_out = ((r_s * a + r_d * inv_a + 127) / 255) as u16;
-    let g_out = ((g_s * a + g_d * inv_a + 127) / 255) as u16;
-    let b_out = ((b_s * a + b_d * inv_a + 127) / 255) as u16;
+    let r_out = div255_round(r_s * a + r_d * inv_a) as u16;
+    let g_out = div255_round(g_s * a + g_d * inv_a) as u16;
+    let b_out = div255_round(b_s * a + b_d * inv_a) as u16;
 
     (r_out << 11) | (g_out << 5) | b_out
 }

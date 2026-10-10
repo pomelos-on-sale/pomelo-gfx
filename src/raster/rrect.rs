@@ -423,7 +423,44 @@ pub fn stroke_rrect(
                 // Entire row is border band (top or bottom cap)
                 let x_start = (out_x1.floor() as i32).clamp(clip_x1, clip_x2);
                 let x_end = (out_x2.ceil() as i32).clamp(x_start, clip_x2);
-                for x in x_start..x_end {
+
+                let mid_left = ((rect.x + outer_r).ceil() as i32).clamp(x_start, x_end);
+                let mid_right = ((rect.right() - outer_r).floor() as i32).clamp(mid_left, x_end);
+
+                // Left corner curve
+                for x in x_start..mid_left {
+                    let px = x as f32 + 0.5;
+                    let cov = stroke_rrect_coverage(px, y_f, &rect, outer_r, &inner_rect, inner_radius);
+                    if cov > 0.0 {
+                        if cov >= 1.0 && is_opaque {
+                            row[x as usize] = col565;
+                        } else {
+                            let eff_a = (cov * a as f32).round() as u8;
+                            if eff_a > 0 {
+                                row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                            }
+                        }
+                    }
+                }
+
+                // Middle flat horizontal segment: coverage is constant along x
+                if mid_right > mid_left {
+                    let sample_px = (mid_left as f32 + mid_right as f32) * 0.5;
+                    let cov = stroke_rrect_coverage(sample_px, y_f, &rect, outer_r, &inner_rect, inner_radius);
+                    if cov >= 1.0 && is_opaque {
+                        row[mid_left as usize..mid_right as usize].fill(col565);
+                    } else if cov > 0.0 {
+                        let eff_a = (cov * a as f32).round() as u8;
+                        if eff_a > 0 {
+                            for x in mid_left..mid_right {
+                                row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
+                            }
+                        }
+                    }
+                }
+
+                // Right corner curve
+                for x in mid_right..x_end {
                     let px = x as f32 + 0.5;
                     let cov = stroke_rrect_coverage(px, y_f, &rect, outer_r, &inner_rect, inner_radius);
                     if cov > 0.0 {

@@ -49,7 +49,7 @@ pub fn blit_mask(
                 continue;
             }
 
-            let effective_alpha = ((alpha_base * mask_alpha as u32) / 255) as u8;
+            let effective_alpha = crate::color::div255_fast(alpha_base * mask_alpha as u32) as u8;
             if effective_alpha > 0 {
                 let dst = &mut row[px as usize];
                 *dst = blend_rgb565(*dst, col565, effective_alpha);
