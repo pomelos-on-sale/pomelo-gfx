@@ -23,6 +23,95 @@ impl Path {
         self.verbs.is_empty()
     }
 
+    pub fn verbs(&self) -> &[PathVerb] {
+        &self.verbs
+    }
+
+    /// Tessellates this path into a triangle mesh using `lyon_tessellation`.
+    /// Returns vertices and triangle indices `(VertexBuffers<Point, u16>)`.
+    pub fn tessellate(
+        &self,
+        fill_rule: crate::paint::FillRule,
+        tolerance: f32,
+    ) -> Result<lyon_tessellation::VertexBuffers<Point, u16>, lyon_tessellation::TessellationError> {
+        use lyon_tessellation::path::Path as LyonPath;
+        use lyon_tessellation::{
+            BuffersBuilder, FillOptions, FillRule as LyonFillRule, FillTessellator, VertexBuffers,
+        };
+
+        let mut builder = LyonPath::builder();
+        let mut in_contour = false;
+
+        for &verb in &self.verbs {
+            match verb {
+                PathVerb::MoveTo(p) => {
+                    if in_contour {
+                        builder.end(false);
+                    }
+                    builder.begin(lyon_tessellation::math::point(p.x, p.y));
+                    in_contour = true;
+                }
+                PathVerb::LineTo(p) => {
+                    if !in_contour {
+                        builder.begin(lyon_tessellation::math::point(p.x, p.y));
+                        in_contour = true;
+                    }
+                    builder.line_to(lyon_tessellation::math::point(p.x, p.y));
+                }
+                PathVerb::QuadTo(ctrl, to) => {
+                    if !in_contour {
+                        builder.begin(lyon_tessellation::math::point(ctrl.x, ctrl.y));
+                        in_contour = true;
+                    }
+                    builder.quadratic_bezier_to(
+                        lyon_tessellation::math::point(ctrl.x, ctrl.y),
+                        lyon_tessellation::math::point(to.x, to.y),
+                    );
+                }
+                PathVerb::CubicTo(c1, c2, to) => {
+                    if !in_contour {
+                        builder.begin(lyon_tessellation::math::point(c1.x, c1.y));
+                        in_contour = true;
+                    }
+                    builder.cubic_bezier_to(
+                        lyon_tessellation::math::point(c1.x, c1.y),
+                        lyon_tessellation::math::point(c2.x, c2.y),
+                        lyon_tessellation::math::point(to.x, to.y),
+                    );
+                }
+                PathVerb::Close => {
+                    if in_contour {
+                        builder.end(true);
+                        in_contour = false;
+                    }
+                }
+            }
+        }
+        if in_contour {
+            builder.end(false);
+        }
+        let lyon_path = builder.build();
+
+        let mut buffers: VertexBuffers<Point, u16> = VertexBuffers::new();
+        let mut tessellator = FillTessellator::new();
+        let options = FillOptions::default()
+            .with_tolerance(tolerance.max(0.05))
+            .with_fill_rule(match fill_rule {
+                crate::paint::FillRule::Winding => LyonFillRule::NonZero,
+                crate::paint::FillRule::EvenOdd => LyonFillRule::EvenOdd,
+            });
+
+        tessellator.tessellate_path(
+            &lyon_path,
+            &options,
+            &mut BuffersBuilder::new(&mut buffers, |vertex: lyon_tessellation::FillVertex| {
+                Point::new(vertex.position().x, vertex.position().y)
+            }),
+        )?;
+
+        Ok(buffers)
+    }
+
     /// Precise mathematical bounding box of this path, calculated via kurbo derivative extrema.
     pub fn bounds(&self) -> Rect {
         use kurbo::Shape;

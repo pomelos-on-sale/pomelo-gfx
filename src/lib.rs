@@ -1,3 +1,4 @@
+pub mod arch;
 pub mod canvas;
 pub mod color;
 pub mod geometry;
@@ -365,5 +366,149 @@ mod tests {
             }
         }
         assert_eq!(count_float_1, 1);
+    }
+
+    #[test]
+    fn test_oklab_gradient_perceptual_uniformity() {
+        use crate::paint::{GradientStop, LinearGradient, SpreadMode};
+
+        let grad = LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+            stops: vec![
+                GradientStop::new(0.0, Color::BLACK),
+                GradientStop::new(1.0, Color::WHITE),
+            ],
+            spread: SpreadMode::Pad,
+            transform: Transform::identity(),
+        };
+
+        // Midpoint in Oklab between black (L=0) and white (L=1) is L=0.5.
+        // In standard sRGB, L=0.5 corresponds to roughly ~54 (0.214 in linear, ~0.5 in perceptual lightness),
+        // whereas naive sRGB linear interpolation would produce 128 (which is perceptually much too bright ~73% lightness).
+        let mid = grad.color_at(50.0, 0.0);
+        assert!(mid.r > 0 && mid.r < 255);
+        assert_eq!(mid.r, mid.g);
+        assert_eq!(mid.g, mid.b);
+        // In Oklab, midpoint L=0.5 corresponds to linear ~0.125, which through sRGB transfer function yields 99,
+        // whereas naive sRGB interpolation would yield 128 (perceptually ~73% lightness, washed out).
+        assert_eq!(mid.r, 99);
+        assert_eq!(mid.g, 99);
+        assert_eq!(mid.b, 99);
+    }
+
+    #[test]
+    fn test_qoi_decode_and_blit() {
+        // Create a 2x2 test image in RGBA:
+        // (0,0): Red (255, 0, 0, 255)
+        // (1,0): Green (0, 255, 0, 255)
+        // (0,1): Blue (0, 0, 255, 255)
+        // (1,1): Half-alpha White (255, 255, 255, 128)
+        let pixels: [u8; 16] = [
+            255, 0, 0, 255,
+            0, 255, 0, 255,
+            0, 0, 255, 255,
+            255, 255, 255, 128,
+        ];
+        let qoi_bytes = qoi::encode_to_vec(&pixels, 2, 2).expect("encoding 2x2 QOI image");
+
+        // 1. Test decode_qoi_to_rgb565
+        let (w, h, rgb565, alpha) =
+            raster::decode_qoi_to_rgb565(&qoi_bytes).expect("decode QOI to rgb565");
+        assert_eq!(w, 2);
+        assert_eq!(h, 2);
+        assert_eq!(rgb565.len(), 4);
+        assert_eq!(rgb565[0], Color::RED.to_rgb565());
+        assert_eq!(rgb565[1], Color::GREEN.to_rgb565());
+        assert_eq!(rgb565[2], Color::BLUE.to_rgb565());
+        assert_eq!(alpha.as_ref().unwrap()[3], 128);
+
+        // 2. Test Canvas::blit_qoi
+        let mut buf = [0u16; 16]; // 4x4 canvas initialized to black
+        let pixmap = Pixmap565Mut::new(&mut buf, 4, 4);
+        let mut canvas = Canvas::new(pixmap);
+        canvas.blit_qoi(1, 1, &qoi_bytes).expect("blit_qoi succeeded");
+
+        // Pixel at (1, 1) should be RED
+        assert_eq!(buf[1 * 4 + 1], Color::RED.to_rgb565());
+        // Pixel at (2, 1) should be GREEN
+        assert_eq!(buf[1 * 4 + 2], Color::GREEN.to_rgb565());
+        // Pixel at (1, 2) should be BLUE
+        assert_eq!(buf[2 * 4 + 1], Color::BLUE.to_rgb565());
+        // Pixel at (2, 2) should be blended half-white over black
+        let expected_half_white = crate::color::blend_rgb565(0x0000, 0xFFFF, 128);
+        assert_eq!(buf[2 * 4 + 2], expected_half_white);
+        // Pixel at (0, 0) should remain untouched (black)
+        assert_eq!(buf[0], 0);
+    }
+
+    #[test]
+    fn test_arch_span_operations() {
+        // 1. Test blend_span_rgb565
+        let mut row = [0x0000u16; 16]; // black
+        crate::arch::blend_span_rgb565(&mut row, Color::WHITE.to_rgb565(), 128);
+        let expected = crate::color::blend_rgb565(0x0000, 0xFFFF, 128);
+        for &px in row.iter() {
+            assert_eq!(px, expected);
+        }
+
+        // 2. Test blit_mask_span
+        let mut dst = [0x0000u16; 8];
+        let mask = [0u8, 64, 128, 192, 255, 0, 0, 255];
+        crate::arch::blit_mask_span(&mut dst, &mask, Color::RED.to_rgb565(), 255);
+
+        assert_eq!(dst[0], 0);
+        assert_eq!(dst[1], crate::color::blend_rgb565(0, Color::RED.to_rgb565(), 64));
+        assert_eq!(dst[2], crate::color::blend_rgb565(0, Color::RED.to_rgb565(), 128));
+        assert_eq!(dst[3], crate::color::blend_rgb565(0, Color::RED.to_rgb565(), 192));
+        assert_eq!(dst[4], Color::RED.to_rgb565());
+        assert_eq!(dst[5], 0);
+        assert_eq!(dst[6], 0);
+        assert_eq!(dst[7], Color::RED.to_rgb565());
+    }
+
+    #[test]
+    fn test_lyon_concave_path_tessellation_and_fill() {
+        // Build a U-shaped concave polygon:
+        // (0,0) -> (30,0) -> (30,30) -> (20,30) -> (20,10) -> (10,10) -> (10,30) -> (0,30) -> close
+        let mut pb = PathBuilder::new();
+        pb.move_to(0.0, 0.0);
+        pb.line_to(30.0, 0.0);
+        pb.line_to(30.0, 30.0);
+        pb.line_to(20.0, 30.0);
+        pb.line_to(20.0, 10.0);
+        pb.line_to(10.0, 10.0);
+        pb.line_to(10.0, 30.0);
+        pb.line_to(0.0, 30.0);
+        pb.close();
+        let path = pb.finish().expect("concave path");
+
+        // 1. Tessellate must produce triangles
+        let buffers = path
+            .tessellate(FillRule::Winding, 0.1)
+            .expect("tessellate succeeded");
+        assert!(!buffers.vertices.is_empty());
+        assert!(!buffers.indices.is_empty());
+        assert_eq!(buffers.indices.len() % 3, 0);
+
+        // 2. Draw onto a 40x40 Pixmap
+        let mut pixmap = Pixmap565::new(40, 40).expect("pixmap allocated");
+        let mut canvas = Canvas::new(pixmap.as_mut());
+        let paint = Paint {
+            shader: Shader::SolidColor(Color::WHITE),
+            anti_alias: false,
+        };
+        canvas.fill_path(&path, &paint, FillRule::Winding);
+
+        // Points inside the U branches should be WHITE:
+        // (15, 5) - in the top horizontal bar (x in 0..30, y in 0..10)
+        assert_eq!(pixmap.data()[5 * 40 + 15], Color::WHITE.to_rgb565());
+        // (5, 20) - in the left vertical branch (x in 0..10, y in 10..30)
+        assert_eq!(pixmap.data()[20 * 40 + 5], Color::WHITE.to_rgb565());
+        // (25, 20) - in the right vertical branch (x in 20..30, y in 10..30)
+        assert_eq!(pixmap.data()[20 * 40 + 25], Color::WHITE.to_rgb565());
+
+        // Point inside the concave notch (15, 20) should remain empty (BLACK = 0)
+        assert_eq!(pixmap.data()[20 * 40 + 15], 0);
     }
 }

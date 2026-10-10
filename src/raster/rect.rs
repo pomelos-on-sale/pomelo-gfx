@@ -1,4 +1,4 @@
-use crate::color::{blend_rgb565, Color};
+use crate::color::Color;
 use crate::geometry::Rect;
 use crate::pixmap::Pixmap565Mut;
 
@@ -91,12 +91,9 @@ pub fn fill_rect(pixmap: &mut Pixmap565Mut<'_>, clip: Option<Rect>, rect: Rect, 
         let row = pixmap.row_mut(y as u32);
         let slice = &mut row[x1 as usize..x2 as usize];
         if is_opaque {
-            fill_u16_slice(slice, col565);
+            crate::arch::fill_span_rgb565(slice, col565);
         } else {
-            let a = color.a;
-            for px in slice.iter_mut() {
-                *px = blend_rgb565(*px, col565, a);
-            }
+            crate::arch::blend_span_rgb565(slice, col565, color.a);
         }
     }
 }

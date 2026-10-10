@@ -176,24 +176,22 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    pub fn fill_path(&mut self, path: &Path, paint: &Paint, _fill_rule: FillRule) {
-        let polylines = path.flatten(0.5);
-        for poly in polylines {
-            let transformed_poly: Vec<Point> = poly
-                .iter()
-                .map(|p| self.current_transform.map_point(*p))
-                .collect();
-            let s = Stroke {
-                width: 1.0,
-                ..Default::default()
-            };
-            raster::stroke_polyline(
-                &mut self.pixmap,
-                self.current_clip,
-                &transformed_poly,
-                paint,
-                &s,
-            );
+    pub fn fill_path(&mut self, path: &Path, paint: &Paint, fill_rule: FillRule) {
+        if path.is_empty() {
+            return;
+        }
+
+        if let Ok(buffers) = path.tessellate(fill_rule, 0.5) {
+            let num_triangles = buffers.indices.len() / 3;
+            for t in 0..num_triangles {
+                let i0 = buffers.indices[t * 3] as usize;
+                let i1 = buffers.indices[t * 3 + 1] as usize;
+                let i2 = buffers.indices[t * 3 + 2] as usize;
+                let p0 = self.current_transform.map_point(buffers.vertices[i0]);
+                let p1 = self.current_transform.map_point(buffers.vertices[i1]);
+                let p2 = self.current_transform.map_point(buffers.vertices[i2]);
+                raster::fill_triangle(&mut self.pixmap, self.current_clip, p0, p1, p2, paint);
+            }
         }
     }
 
@@ -205,6 +203,12 @@ impl<'a> Canvas<'a> {
         let tx = x + (self.current_transform.tx.round() as i32);
         let ty = y + (self.current_transform.ty.round() as i32);
         raster::blit_image_565(&mut self.pixmap, self.current_clip, tx, ty, w, h, pixels);
+    }
+
+    pub fn blit_qoi(&mut self, x: i32, y: i32, qoi_bytes: &[u8]) -> Result<(u32, u32), qoi::Error> {
+        let tx = x + (self.current_transform.tx.round() as i32);
+        let ty = y + (self.current_transform.ty.round() as i32);
+        raster::blit_qoi(&mut self.pixmap, self.current_clip, tx, ty, qoi_bytes)
     }
 
     pub fn blit_image_565_with_alpha(

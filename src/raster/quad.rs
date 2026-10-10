@@ -2,7 +2,6 @@ use crate::color::blend_rgb565;
 use crate::geometry::{Point, Rect};
 use crate::paint::{Paint, Shader};
 use crate::pixmap::Pixmap565Mut;
-use super::rect::fill_u16_slice;
 
 /// Fills a convex quadrilateral, sampling `paint`'s shader per pixel.
 ///
@@ -86,7 +85,18 @@ pub fn fill_convex_quad(
 
             match &paint.shader {
                 Shader::Linear(grad) => {
-                    if solid_start < solid_end {
+                    if !paint.anti_alias {
+                        let s_start = (x_min.round() as i32).clamp(clip_x1, clip_x2) as usize;
+                        let s_end = (x_max.round() as i32).clamp(clip_x1, clip_x2) as usize;
+                        for px in s_start..s_end {
+                            let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px as i32, y);
+                            if a == 255 {
+                                row[px] = col565;
+                            } else if a > 0 {
+                                row[px] = blend_rgb565(row[px], col565, a);
+                            }
+                        }
+                    } else if solid_start < solid_end {
                         // Left subpixel anti-aliased edge
                         if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
                             let cov = 1.0 - (x_min - left_pixel as f32);
@@ -141,7 +151,18 @@ pub fn fill_convex_quad(
                     let col565 = color.to_rgb565();
                     let a = color.a;
 
-                    if solid_start < solid_end {
+                    if !paint.anti_alias {
+                        let s_start = (x_min.round() as i32).clamp(clip_x1, clip_x2) as usize;
+                        let s_end = (x_max.round() as i32).clamp(clip_x1, clip_x2) as usize;
+                        if s_end > s_start {
+                            let slice = &mut row[s_start..s_end];
+                            if a == 255 {
+                                crate::arch::fill_span_rgb565(slice, col565);
+                            } else {
+                                crate::arch::blend_span_rgb565(slice, col565, a);
+                            }
+                        }
+                    } else if solid_start < solid_end {
                         // Left subpixel anti-aliased edge
                         if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
                             let cov = 1.0 - (x_min - left_pixel as f32);
@@ -157,11 +178,9 @@ pub fn fill_convex_quad(
                         if s_end > s_start {
                             let slice = &mut row[s_start..s_end];
                             if a == 255 {
-                                fill_u16_slice(slice, col565);
+                                crate::arch::fill_span_rgb565(slice, col565);
                             } else {
-                                for px in slice.iter_mut() {
-                                    *px = blend_rgb565(*px, col565, a);
-                                }
+                                crate::arch::blend_span_rgb565(slice, col565, a);
                             }
                         }
 
@@ -195,5 +214,18 @@ pub fn fill_convex_quad(
             }
         }
     }
+}
+
+/// Fills a single triangle, sampling `paint`'s shader or color per pixel.
+#[inline(always)]
+pub fn fill_triangle(
+    pixmap: &mut Pixmap565Mut<'_>,
+    clip: Option<Rect>,
+    p0: Point,
+    p1: Point,
+    p2: Point,
+    paint: &Paint,
+) {
+    fill_convex_quad(pixmap, clip, p0, p1, p2, p2, paint);
 }
 

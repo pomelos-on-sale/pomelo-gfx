@@ -1,5 +1,6 @@
 use crate::color::Color;
 use crate::geometry::{Point, Transform};
+use palette::{FromColor, Oklab, Srgb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineCap {
@@ -52,15 +53,18 @@ impl Default for SpreadMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GradientStop {
     pub position: f32,
     pub color: Color,
+    pub oklab: Oklab,
 }
 
 impl GradientStop {
     pub fn new(position: f32, color: Color) -> Self {
-        Self { position, color }
+        let srgb = Srgb::new(color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0);
+        let oklab = Oklab::from_color(srgb);
+        Self { position, color, oklab }
     }
 }
 
@@ -146,10 +150,16 @@ impl LinearGradient {
                     0.0
                 };
                 let inv = 1.0 - factor;
+                let interp = Oklab::new(
+                    s0.oklab.l * inv + s1.oklab.l * factor,
+                    s0.oklab.a * inv + s1.oklab.a * factor,
+                    s0.oklab.b * inv + s1.oklab.b * factor,
+                );
+                let srgb_out = Srgb::from_color(interp);
                 return (
-                    s0.color.r as f32 * inv + s1.color.r as f32 * factor,
-                    s0.color.g as f32 * inv + s1.color.g as f32 * factor,
-                    s0.color.b as f32 * inv + s1.color.b as f32 * factor,
+                    srgb_out.red.clamp(0.0, 1.0) * 255.0,
+                    srgb_out.green.clamp(0.0, 1.0) * 255.0,
+                    srgb_out.blue.clamp(0.0, 1.0) * 255.0,
                     s0.color.a as f32 * inv + s1.color.a as f32 * factor,
                 );
             }
