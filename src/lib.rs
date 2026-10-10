@@ -443,6 +443,20 @@ mod tests {
     }
 
     #[test]
+    fn test_qoi_dithering() {
+        // Create an 8x8 image of subtle intermediate gray (129, 129, 129)
+        let pixels = [129u8; 8 * 8 * 3];
+        let qoi_bytes = qoi::encode_to_vec(&pixels, 8, 8).expect("encode 8x8");
+        let (w, h, rgb565, _) = raster::decode_qoi_to_rgb565(&qoi_bytes).expect("decode");
+        assert_eq!(w, 8);
+        assert_eq!(h, 8);
+        // Due to Bayer 8x8 dithering, quantization error is dispersed across the tile
+        let min_val = *rgb565.iter().min().unwrap();
+        let max_val = *rgb565.iter().max().unwrap();
+        assert!(max_val > min_val, "dithering should disperse quantization error across 8x8 tile");
+    }
+
+    #[test]
     fn test_arch_span_operations() {
         // 1. Test blend_span_rgb565
         let mut row = [0x0000u16; 16]; // black

@@ -277,7 +277,7 @@ pub fn blit_qoi(
                     let r = decoded[idx];
                     let g = decoded[idx + 1];
                     let b = decoded[idx + 2];
-                    row[px as usize] = crate::color::rgb888_to_rgb565(r, g, b);
+                    row[px as usize] = crate::color::dither_rgb888_to_rgb565(r, g, b, px, py);
                 }
             }
         }
@@ -295,7 +295,7 @@ pub fn blit_qoi(
                     let r = decoded[idx];
                     let g = decoded[idx + 1];
                     let b = decoded[idx + 2];
-                    let col565 = crate::color::rgb888_to_rgb565(r, g, b);
+                    let col565 = crate::color::dither_rgb888_to_rgb565(r, g, b, px, py);
                     if a == 255 {
                         row[px as usize] = col565;
                     } else {
@@ -325,10 +325,14 @@ pub fn decode_qoi_to_rgb565(
         qoi::Channels::Rgb => {
             for i in 0..count {
                 let idx = i * channels;
-                rgb565.push(crate::color::rgb888_to_rgb565(
+                let px = (i % w as usize) as i32;
+                let py = (i / w as usize) as i32;
+                rgb565.push(crate::color::dither_rgb888_to_rgb565(
                     decoded[idx],
                     decoded[idx + 1],
                     decoded[idx + 2],
+                    px,
+                    py,
                 ));
             }
             Ok((w, h, rgb565, None))
@@ -343,10 +347,14 @@ pub fn decode_qoi_to_rgb565(
                     has_non_opaque = true;
                 }
                 alpha.push(a);
-                rgb565.push(crate::color::rgb888_to_rgb565(
+                let px = (i % w as usize) as i32;
+                let py = (i / w as usize) as i32;
+                rgb565.push(crate::color::dither_rgb888_to_rgb565(
                     decoded[idx],
                     decoded[idx + 1],
                     decoded[idx + 2],
+                    px,
+                    py,
                 ));
             }
             Ok((w, h, rgb565, if has_non_opaque { Some(alpha) } else { None }))
