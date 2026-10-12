@@ -45,6 +45,11 @@ pub fn fill_convex_quad(
     }
 
     let edges = [(q0, q1), (q1, q2), (q2, q3), (q3, q0)];
+    let grad_lut = if let Shader::Linear(grad) = &paint.shader {
+        Some(grad.bake_lut())
+    } else {
+        None
+    };
 
     for y in y_start..y_end {
         let y_f = y as f32 + 0.5;
@@ -85,11 +90,12 @@ pub fn fill_convex_quad(
 
             match &paint.shader {
                 Shader::Linear(grad) => {
+                    let lut = grad_lut.as_ref().unwrap();
                     if !paint.anti_alias {
                         let s_start = (x_min.round() as i32).clamp(clip_x1, clip_x2) as usize;
                         let s_end = (x_max.round() as i32).clamp(clip_x1, clip_x2) as usize;
                         for px in s_start..s_end {
-                            let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px as i32, y);
+                            let (col565, a) = grad.dithered_at_lut(px as f32 + 0.5, y_f, px as i32, y, lut);
                             if a == 255 {
                                 row[px] = col565;
                             } else if a > 0 {
@@ -100,7 +106,7 @@ pub fn fill_convex_quad(
                         // Left subpixel anti-aliased edge
                         if left_pixel >= clip_x1 && left_pixel < clip_x2 && left_pixel < solid_start {
                             let cov = 1.0 - (x_min - left_pixel as f32);
-                            let (col565, a) = grad.dithered_at(left_pixel as f32 + 0.5, y_f, left_pixel, y);
+                            let (col565, a) = grad.dithered_at_lut(left_pixel as f32 + 0.5, y_f, left_pixel, y, lut);
                             let eff_a = (cov * a as f32).round() as u8;
                             if eff_a > 0 {
                                 row[left_pixel as usize] = blend_rgb565(row[left_pixel as usize], col565, eff_a);
@@ -111,7 +117,7 @@ pub fn fill_convex_quad(
                         let s_start = solid_start.clamp(clip_x1, clip_x2) as usize;
                         let s_end = solid_end.clamp(clip_x1, clip_x2) as usize;
                         for px in s_start..s_end {
-                            let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px as i32, y);
+                            let (col565, a) = grad.dithered_at_lut(px as f32 + 0.5, y_f, px as i32, y, lut);
                             if a == 255 {
                                 row[px] = col565;
                             } else if a > 0 {
@@ -122,7 +128,7 @@ pub fn fill_convex_quad(
                         // Right subpixel anti-aliased edge
                         if right_pixel >= clip_x1 && right_pixel < clip_x2 && right_pixel >= solid_end {
                             let cov = x_max - right_pixel as f32;
-                            let (col565, a) = grad.dithered_at(right_pixel as f32 + 0.5, y_f, right_pixel, y);
+                            let (col565, a) = grad.dithered_at_lut(right_pixel as f32 + 0.5, y_f, right_pixel, y, lut);
                             let eff_a = (cov * a as f32).round() as u8;
                             if eff_a > 0 {
                                 row[right_pixel as usize] = blend_rgb565(row[right_pixel as usize], col565, eff_a);
@@ -138,7 +144,7 @@ pub fn fill_convex_quad(
                             let span_r = p_right.min(x_max);
                             let cov = (span_r - span_l).clamp(0.0, 1.0);
                             if cov > 0.0 {
-                                let (col565, a) = grad.dithered_at(px as f32 + 0.5, y_f, px, y);
+                                let (col565, a) = grad.dithered_at_lut(px as f32 + 0.5, y_f, px, y, lut);
                                 let eff_a = (cov * a as f32).round() as u8;
                                 if eff_a > 0 {
                                     row[px as usize] = blend_rgb565(row[px as usize], col565, eff_a);

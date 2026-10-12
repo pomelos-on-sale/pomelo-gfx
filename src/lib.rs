@@ -398,6 +398,78 @@ mod tests {
     }
 
     #[test]
+    fn test_fast_oklab_accuracy() {
+        use palette::{FromColor, Oklab, Srgb};
+
+        // Standard Oklab to Linear sRGB matrix
+        // [l]   [ 1.0000000000  0.3963377774  0.2158037573 ] [L]
+        // [m] = [ 1.0000000000 -0.1055613458 -0.0638541728 ] [a]
+        // [s]   [ 1.0000000000 -0.0894841775 -1.2914855480 ] [b]
+        //
+        // l = l'^3, m = m'^3, s = s'^3
+        //
+        // [R_lin]   [ +4.0767434775 -3.3077115913 +0.2309699292 ] [l]
+        // [G_lin] = [ -1.2684380046 +2.6097574011 -0.3413193965 ] [m]
+        // [B_lin]   [ -0.0041960863 -0.7034186147 +1.7076147010 ] [s]
+
+        for i in 0..=100 {
+            let l_val = i as f32 / 100.0;
+            let oklab = Oklab::new(l_val, 0.0, 0.0);
+            let srgb_pal = Srgb::from_color(oklab);
+
+            let l_ = oklab.l;
+            let l = l_ * l_ * l_;
+            let r_lin = l;
+            let srgb_fast = if r_lin <= 0.0031308 {
+                12.92 * r_lin
+            } else {
+                1.055 * r_lin.powf(1.0 / 2.4) - 0.055
+            };
+            assert!((srgb_pal.red - srgb_fast).abs() < 1e-4, "mismatch at l={}: pal={}, fast={}", l_val, srgb_pal.red, srgb_fast);
+        }
+
+        let test_colors = [
+            (0.5, 0.1, -0.1),
+            (0.8, -0.2, 0.15),
+            (0.3, 0.05, 0.2),
+            (0.6, -0.1, -0.1),
+        ];
+        for (l_in, a_in, b_in) in test_colors {
+            let oklab = Oklab::new(l_in, a_in, b_in);
+            let srgb_pal = Srgb::from_color(oklab);
+
+            let l_ = oklab.l + 0.3963377774 * oklab.a + 0.2158037573 * oklab.b;
+            let m_ = oklab.l - 0.1055613458 * oklab.a - 0.0638541728 * oklab.b;
+            let s_ = oklab.l - 0.0894841775 * oklab.a - 1.2914855480 * oklab.b;
+
+            let l = l_ * l_ * l_;
+            let m = m_ * m_ * m_;
+            let s = s_ * s_ * s_;
+
+            let r_lin = 4.0767434775 * l - 3.3077115913 * m + 0.2309699292 * s;
+            let g_lin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+            let b_lin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+            fn lin_to_srgb(c: f32) -> f32 {
+                let c = c.clamp(0.0, 1.0);
+                if c <= 0.0031308 {
+                    12.92 * c
+                } else {
+                    1.055 * c.powf(1.0 / 2.4) - 0.055
+                }
+            }
+
+            let r_fast = lin_to_srgb(r_lin);
+            let g_fast = lin_to_srgb(g_lin);
+            let b_fast = lin_to_srgb(b_lin);
+
+            assert!((srgb_pal.red - r_fast).abs() < 1e-3, "r mismatch: pal={}, fast={}", srgb_pal.red, r_fast);
+            assert!((srgb_pal.green - g_fast).abs() < 1e-3, "g mismatch: pal={}, fast={}", srgb_pal.green, g_fast);
+            assert!((srgb_pal.blue - b_fast).abs() < 1e-3, "b mismatch: pal={}, fast={}", srgb_pal.blue, b_fast);
+        }
+    }
+
+    #[test]
     fn test_qoi_decode_and_blit() {
         // Create a 2x2 test image in RGBA:
         // (0,0): Red (255, 0, 0, 255)

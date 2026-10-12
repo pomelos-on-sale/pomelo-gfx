@@ -122,6 +122,11 @@ pub fn stroke_polyline(
         Shader::SolidColor(color) => Some((color.to_rgb565(), color.a)),
         _ => None,
     };
+    let grad_lut = if let Shader::Linear(grad) = &paint.shader {
+        Some(grad.bake_lut())
+    } else {
+        None
+    };
 
     for y in y_start..y_end {
         let y_f = y as f32 + 0.5;
@@ -246,7 +251,8 @@ pub fn stroke_polyline(
                             row[x as usize] = blend_rgb565(row[x as usize], col565, eff_a);
                         }
                     } else if let Shader::Linear(grad) = &paint.shader {
-                        let (col565, a) = grad.dithered_at(px, y_f, x, y);
+                        let lut = grad_lut.as_ref().unwrap();
+                        let (col565, a) = grad.dithered_at_lut(px, y_f, x, y, lut);
                         let eff_a = (cov * a as f32).round() as u8;
                         if eff_a == 255 {
                             row[x as usize] = col565;
